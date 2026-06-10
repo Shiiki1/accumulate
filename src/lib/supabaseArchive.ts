@@ -25,6 +25,19 @@ type SupabaseArchiveResult = {
 };
 
 type SupabaseClient = ReturnType<typeof createClient>;
+type ProjectColumn = "title" | "name";
+type ProjectDatabaseRow = Omit<ProjectItem, "title"> & {
+  title?: string | null;
+  name?: string | null;
+};
+type ProjectWriteRow = {
+  id: string;
+  user_id: string;
+  created_at: string;
+  title?: string;
+  name?: string;
+};
+
 type DynamicSupabaseClient = {
   from: (table: string) => {
     upsert: (
@@ -47,6 +60,8 @@ type DynamicSupabaseClient = {
 function dynamicClient(supabase: SupabaseClient) {
   return supabase as unknown as DynamicSupabaseClient;
 }
+
+let projectColumnPreference: ProjectColumn = "title";
 
 const emptySnapshot: ArchiveSnapshot = {
   media: [],
@@ -106,6 +121,39 @@ function owned<T extends object>(
     user_id: userId,
     updated_at: now(),
   };
+}
+
+function projectFromRow(row: ProjectDatabaseRow): ProjectItem {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    title: row.title ?? row.name ?? "Untitled project",
+    created_at: row.created_at,
+  };
+}
+
+function projectRow(
+  item: ProjectItem,
+  userId: string,
+  projectColumn: ProjectColumn,
+): ProjectWriteRow {
+  const base: Omit<ProjectWriteRow, "title" | "name"> = {
+    id: item.id,
+    user_id: userId,
+    created_at: item.created_at,
+  };
+
+  return projectColumn === "title"
+    ? { ...base, title: item.title }
+    : { ...base, name: item.title };
+}
+
+function projectRows(
+  projects: ProjectItem[],
+  userId: string,
+  projectColumn: ProjectColumn,
+) {
+  return projects.map((item) => projectRow(item, userId, projectColumn));
 }
 
 function mediaRow(item: DisplayItem, userId: string) {
@@ -187,6 +235,45 @@ async function upsertRows<T>(
   }
 }
 
+function isMissingProjectTitleColumn(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.toLowerCase().includes("'title' column") &&
+    error.message.toLowerCase().includes("'projects'")
+  );
+}
+
+async function upsertProjects(
+  supabase: SupabaseClient,
+  projects: ProjectItem[],
+  userId: string,
+) {
+  if (!projects.length) return;
+
+  try {
+    await upsertRows(
+      supabase,
+      "projects",
+      projectRows(projects, userId, projectColumnPreference),
+    );
+  } catch (error) {
+    if (
+      projectColumnPreference === "title" &&
+      isMissingProjectTitleColumn(error)
+    ) {
+      projectColumnPreference = "name";
+      await upsertRows(
+        supabase,
+        "projects",
+        projectRows(projects, userId, "name"),
+      );
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function deleteRow(supabase: SupabaseClient, table: string, id: string) {
   const { error } = await dynamicClient(supabase).from(table).delete().eq("id", id);
   if (error) {
@@ -246,7 +333,7 @@ export async function loadSupabaseArchive(): Promise<SupabaseArchiveResult | nul
     selectRows<DisplayItem>(supabase, "media", "created_at", false),
     selectRows<WebsiteItem>(supabase, "resources", "created_at", false),
     selectRows<IdeaItem>(supabase, "ideas_references", "created_at", false),
-    selectRows<ProjectItem>(supabase, "projects"),
+    selectRows<ProjectDatabaseRow>(supabase, "projects"),
     selectRows<PinboardItem>(supabase, "boards", "order"),
     selectRows<BoardItem>(supabase, "board_items"),
     selectRows<IndicatorItem>(supabase, "indicators", "created_at", false),
@@ -278,7 +365,7 @@ export async function loadSupabaseArchive(): Promise<SupabaseArchiveResult | nul
         entry_type: item.entry_type ?? "idea",
         indicator_ids: item.indicator_ids ?? [],
       })),
-      projects,
+      projects: projects.map(projectFromRow),
       boards: boards.map((board) => ({ ...board, height: board.height ?? 680 })),
       boardItems,
       indicators,
@@ -295,7 +382,7 @@ export async function saveSupabaseArchive(snapshot: ArchiveSnapshot) {
   if (!auth) return null;
 
   const { supabase, userId } = auth;
-  await upsertRows(supabase, "projects", snapshot.projects.map((item) => owned(item, userId)));
+  await upsertProjects(supabase, snapshot.projects, userId);
   await Promise.all([
     upsertRows(supabase, "indicators", snapshot.indicators.map((item) => owned(item, userId))),
     upsertRows(supabase, "media", snapshot.media.map((item) => mediaRow(item, userId))),
@@ -397,7 +484,7 @@ export async function replaceSupabaseIdeas(items: IdeaItem[]) {
 export async function persistSupabaseProjects(items: ProjectItem[]) {
   const auth = await getAuthenticatedClient();
   if (!auth) return;
-  await upsertRows(auth.supabase, "projects", items.map((item) => owned(item, auth.userId)));
+  await upsertProjects(auth.supabase, items, auth.userId);
 }
 
 export async function persistSupabaseBoards(items: PinboardItem[]) {

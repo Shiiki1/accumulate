@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   FormEvent,
   MouseEvent as ReactMouseEvent,
+  WheelEvent as ReactWheelEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -94,6 +96,8 @@ type BoardSectionProps = {
     node: HTMLElement,
     position: { x: number; y: number },
   ) => void;
+  zoom: number;
+  onZoomChange: (zoom: number) => void;
 };
 
 type ContextMenuState = {
@@ -106,9 +110,29 @@ type SnapMode = "free" | "soft";
 
 const snapModeKey = "accumulate.snapMode";
 const snapGrid = 24;
+const zoomLevels = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const fitBoardZoom = 0.75;
 
 function snapValue(value: number, mode: SnapMode) {
   return mode === "soft" ? Math.round(value / snapGrid) * snapGrid : value;
+}
+
+function zoomLabel(zoom: number) {
+  return `${Math.round(zoom * 100)}%`;
+}
+
+function stepZoom(currentZoom: number, direction: 1 | -1) {
+  const currentIndex = zoomLevels.reduce((bestIndex, level, index) => {
+    return Math.abs(level - currentZoom) < Math.abs(zoomLevels[bestIndex] - currentZoom)
+      ? index
+      : bestIndex;
+  }, 0);
+  const nextIndex = Math.min(
+    zoomLevels.length - 1,
+    Math.max(0, currentIndex + direction),
+  );
+
+  return zoomLevels[nextIndex];
 }
 
 function sourceTitle(source: SourceItem) {
@@ -165,6 +189,7 @@ function BoardCard({
   onMoveStop,
   onContextMenu,
   snapMode,
+  zoom,
 }: {
   item: ResolvedBoardItem;
   onPatchItem: (itemId: string, patch: Partial<BoardItem>) => void;
@@ -175,6 +200,7 @@ function BoardCard({
   ) => void;
   onContextMenu: (event: ReactMouseEvent, item: ResolvedBoardItem) => void;
   snapMode: SnapMode;
+  zoom: number;
 }) {
   const height = itemHeight(item);
   const isSeparator = item.source_type === "separator";
@@ -196,6 +222,7 @@ function BoardCard({
       minWidth={isVerticalSeparator ? separatorThickness : isSeparator ? 100 : 90}
       minHeight={isVerticalSeparator ? 100 : isSeparator ? separatorThickness : 64}
       lockAspectRatio={item.source_type === "media" ? 0.8 : false}
+      scale={zoom}
       position={{ x: item.x, y: item.y }}
       dragGrid={snapMode === "soft" ? [snapGrid, snapGrid] : undefined}
       resizeGrid={snapMode === "soft" ? [snapGrid, snapGrid] : undefined}
@@ -429,7 +456,12 @@ function BoardSection({
   snapMode,
   onSnapModeChange,
   onMoveStop,
+  zoom,
+  onZoomChange,
 }: BoardSectionProps) {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
   function beginBoardResize(event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     const startY = event.clientY;
@@ -448,8 +480,45 @@ function BoardSection({
     window.addEventListener("mouseup", handleUp, { once: true });
   }
 
+  function handleBoardWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey) return;
+
+    event.preventDefault();
+    onZoomChange(stepZoom(zoom, event.deltaY > 0 ? -1 : 1));
+  }
+
+  function centerViewport() {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+
+        viewport.scrollLeft = Math.max(
+          0,
+          (viewport.scrollWidth - viewport.clientWidth) / 2,
+        );
+        viewport.scrollTop = Math.max(
+          0,
+          (viewport.scrollHeight - viewport.clientHeight) / 2,
+        );
+      });
+    });
+  }
+
+  function fitBoard() {
+    onZoomChange(fitBoardZoom);
+    sectionRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    centerViewport();
+  }
+
+  function resetZoom() {
+    onZoomChange(1);
+    centerViewport();
+  }
+
   return (
     <section
+      ref={sectionRef}
       className={`relative mx-4 sm:mx-6 lg:mx-8 ${
         isLast ? "mb-16" : "mb-3"
       }`}
@@ -458,7 +527,38 @@ function BoardSection({
         <p className="archive-label">
           {board.title}
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
+          <div className="mr-1 flex items-center border border-[color-mix(in_srgb,var(--line)_82%,transparent)]">
+            <span className="px-2.5 text-xs text-[var(--muted)]">
+              {zoomLabel(zoom)}
+            </span>
+            <select
+              value={zoom}
+              onChange={(event) => onZoomChange(Number(event.target.value))}
+              className="h-8 border-l border-[var(--line)] bg-transparent px-2 text-xs text-[var(--muted)] outline-none transition hover:text-[var(--foreground)]"
+              aria-label="Moodboard zoom level"
+            >
+              {zoomLevels.map((level) => (
+                <option key={level} value={level}>
+                  {zoomLabel(level)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={fitBoard}
+              className="h-8 border-l border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            >
+              Fit
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="h-8 border-l border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            >
+              100
+            </button>
+          </div>
           <div className="mr-1 flex border border-[color-mix(in_srgb,var(--line)_82%,transparent)]">
             {(["free", "soft"] as const).map((mode) => (
               <button
@@ -519,37 +619,71 @@ function BoardSection({
       </div>
 
       <div
-        data-board-surface
-        data-board-id={board.id}
-        className="relative overflow-hidden bg-[var(--board-bg)]"
+        ref={viewportRef}
+        className="relative overflow-auto bg-[var(--board-bg)]"
+        onWheel={handleBoardWheel}
         style={{
-          minHeight: board.height ?? 680,
+          height: Math.max(360, Math.round((board.height ?? 680) * zoom)),
           boxShadow:
             "inset 0 0 0 1px color-mix(in srgb, var(--board-line-strong) 38%, transparent)",
         }}
       >
-        <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:linear-gradient(var(--board-grid)_1px,transparent_1px),linear-gradient(90deg,var(--board-grid)_1px,transparent_1px)] [background-size:48px_48px]" />
-        <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(var(--board-line-strong)_1px,transparent_1px),linear-gradient(90deg,var(--board-line-strong)_1px,transparent_1px)] [background-size:192px_192px]" />
-        {items.map((item) => (
-          <BoardCard
-            key={item.id}
-            item={item}
-            onPatchItem={onPatchItem}
-            onMoveStop={onMoveStop}
-            snapMode={snapMode}
-            onContextMenu={(event, menuItem) => {
-              event.preventDefault();
-              event.stopPropagation();
-              window.dispatchEvent(
-                new CustomEvent<ContextMenuState>("accumulate:board-menu", {
-                  detail: { item: menuItem, x: event.clientX, y: event.clientY },
-                }),
-              );
+        <div
+          className="relative"
+          style={{
+            width: `${zoom * 100}%`,
+            height: Math.round((board.height ?? 680) * zoom),
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.1]"
+            style={{
+              backgroundImage:
+                "linear-gradient(var(--board-grid) 1px, transparent 1px), linear-gradient(90deg, var(--board-grid) 1px, transparent 1px)",
+              backgroundSize: `${48 * zoom}px ${48 * zoom}px`,
             }}
           />
-        ))}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.2]"
+            style={{
+              backgroundImage:
+                "linear-gradient(var(--board-line-strong) 1px, transparent 1px), linear-gradient(90deg, var(--board-line-strong) 1px, transparent 1px)",
+              backgroundSize: `${192 * zoom}px ${192 * zoom}px`,
+            }}
+          />
+          <div
+            data-board-surface
+            data-board-id={board.id}
+            className="absolute left-0 top-0 origin-top-left transition-transform duration-200"
+            style={{
+              width: `${100 / zoom}%`,
+              height: board.height ?? 680,
+              transform: `scale(${zoom})`,
+            }}
+          >
+            {items.map((item) => (
+              <BoardCard
+                key={item.id}
+                item={item}
+                onPatchItem={onPatchItem}
+                onMoveStop={onMoveStop}
+                snapMode={snapMode}
+                zoom={zoom}
+                onContextMenu={(event, menuItem) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent<ContextMenuState>("accumulate:board-menu", {
+                      detail: { item: menuItem, x: event.clientX, y: event.clientY },
+                    }),
+                  );
+                }}
+              />
+            ))}
+          </div>
+        </div>
         {!items.length ? (
-          <div className="absolute inset-0 grid place-items-center px-6 text-center">
+          <div className="pointer-events-none absolute inset-0 grid place-items-center px-6 text-center">
             <div>
               <p className="text-xs uppercase tracking-[0.26em] text-[var(--muted)]">
                 Empty surface
@@ -591,6 +725,7 @@ export function MoodboardHome() {
   const [editItem, setEditItem] = useState<ResolvedBoardItem | null>(null);
   const [separatorBoardId, setSeparatorBoardId] = useState<string | null>(null);
   const [snapMode, setSnapMode] = useState<SnapMode>("free");
+  const [moodboardZoom, setMoodboardZoom] = useState<number>(1);
 
   function load(projectId = readActiveProjectId()) {
     setProjects(readProjects());
@@ -794,8 +929,14 @@ export function MoodboardHome() {
     const targetRect = targetSurface.getBoundingClientRect();
     patchBoardItem(item.id, {
       board_id: targetSurface.dataset.boardId ?? item.board_id,
-      x: snapValue(Math.round(itemRect.left - targetRect.left), snapMode),
-      y: snapValue(Math.round(itemRect.top - targetRect.top), snapMode),
+      x: snapValue(
+        Math.round((itemRect.left - targetRect.left) / moodboardZoom),
+        snapMode,
+      ),
+      y: snapValue(
+        Math.round((itemRect.top - targetRect.top) / moodboardZoom),
+        snapMode,
+      ),
     });
   }
 
@@ -961,6 +1102,8 @@ export function MoodboardHome() {
             snapMode={snapMode}
             onSnapModeChange={changeSnapMode}
             onMoveStop={moveBoardItem}
+            zoom={moodboardZoom}
+            onZoomChange={setMoodboardZoom}
           />
         ))}
       </motion.main>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Copy, FolderPlus, Layers, Pencil, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { MinimalHeader } from "@/components/MinimalHeader";
+import { openQuickCapture } from "@/components/UniversalCapture";
 import {
   LOCAL_USER_ID,
   archiveEvents,
@@ -295,21 +296,36 @@ export function ProjectDashboard() {
               Accumulate.
             </h1>
           </div>
-          <form onSubmit={createProject} className="flex w-full max-w-md gap-2">
-            <input
-              name="title"
-              required
-              placeholder="New project"
-              className="premium-focus archive-field h-11 min-w-0 flex-1 px-3 text-sm"
-            />
+          <div className="grid w-full max-w-md gap-2">
             <button
-              type="submit"
-              className="archive-button inline-flex h-11 shrink-0 items-center gap-2 px-4 text-sm"
+              type="button"
+              onClick={openQuickCapture}
+              className="archive-card flex h-14 items-center justify-between px-4 text-left"
             >
-              <FolderPlus size={15} />
-              Create
+              <span>
+                <span className="block text-sm font-medium">Quick Capture</span>
+                <span className="archive-meta mt-0.5 block">
+                  Paste or save media, resources, ideas, and references.
+                </span>
+              </span>
+              <span className="archive-meta">Open</span>
             </button>
-          </form>
+            <form onSubmit={createProject} className="flex gap-2">
+              <input
+                name="title"
+                required
+                placeholder="New project"
+                className="premium-focus archive-field h-11 min-w-0 flex-1 px-3 text-sm"
+              />
+              <button
+                type="submit"
+                className="archive-button inline-flex h-11 shrink-0 items-center gap-2 px-4 text-sm"
+              >
+                <FolderPlus size={15} />
+                Create
+              </button>
+            </form>
+          </div>
         </section>
 
         <motion.section
@@ -522,7 +538,7 @@ export function ProjectDashboard() {
 
           <div className="border-t border-[var(--line)] pt-6">
             <p className="archive-label">
-              Collections
+              Toolkit collections
             </p>
             <div className="mt-5 grid gap-3">
               {collections.length ? (
@@ -546,8 +562,8 @@ export function ProjectDashboard() {
                 ))
               ) : (
                 <p className="archive-panel max-w-md p-5 text-sm leading-6 text-[var(--muted)]">
-                  Collections are ready as reusable groups. Add names now,
-                  assemble them later.
+                  Create reusable sets like Landing Page Toolkit, 3D Design Stack,
+                  Typography Resources, or Lookbook References.
                 </p>
               )}
             </div>
@@ -559,12 +575,12 @@ export function ProjectDashboard() {
           >
             <div className="archive-label flex items-center gap-2">
               <Layers size={13} />
-              New collection
+              New toolkit collection
             </div>
             <input
               name="title"
               required
-              placeholder="Luxury Editorial References"
+              placeholder="Landing Page Toolkit"
               className="premium-focus archive-field mt-5 h-11 w-full px-3 text-sm"
             />
             <textarea

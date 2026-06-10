@@ -86,6 +86,10 @@ function ToolCategoryButtons({
   );
 }
 
+function primaryCategory(categories?: string[]) {
+  return normalizeToolCategories(categories)[0] ?? "Resource";
+}
+
 function ToolCategoryChips({ categories }: { categories?: string[] }) {
   const normalizedCategories = normalizeToolCategories(categories);
 
@@ -283,6 +287,9 @@ export function ToolsCollection() {
             <h1 className="font-serif-accent mt-3 text-6xl leading-none sm:text-7xl">
               Creative toolkit.
             </h1>
+            <p className="mt-5 max-w-xl text-sm leading-6 text-[var(--muted)]">
+              Tools, websites, plugins, asset libraries, tutorials, and creative utilities.
+            </p>
           </div>
           <button
             type="button"
@@ -325,6 +332,7 @@ export function ToolsCollection() {
                 getSourceRelationships("website", item.id),
                 { includeRelatedReferences: true },
               );
+              const category = primaryCategory(item.categories);
 
               return (
               <motion.article
@@ -332,20 +340,18 @@ export function ToolsCollection() {
                 key={item.id}
                 className="archive-card relative p-4"
               >
-                <div className="grid aspect-[16/8] place-items-center border border-[var(--line)] bg-[color-mix(in_srgb,var(--surface-soft)_72%,transparent)] px-4 text-center text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
-                  {item.domain ?? displayHost(item.source_url)}
+                <div className="border border-[var(--line)] bg-[color-mix(in_srgb,var(--surface-soft)_72%,transparent)] p-4">
+                  <p className="archive-label text-[10px]">{category}</p>
+                  <p className="mt-5 truncate text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                    {item.domain ?? displayHost(item.source_url)}
+                  </p>
                 </div>
                 <div className="mt-4 flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-base font-medium">{item.name}</h2>
+                    <h2 className="text-lg font-medium leading-snug">{item.name}</h2>
                     {item.description ? (
                       <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
                         {item.description}
-                      </p>
-                    ) : null}
-                    {item.used_for ? (
-                      <p className="archive-meta mt-3 line-clamp-1">
-                        Used for: {item.used_for}
                       </p>
                     ) : null}
                   </div>
@@ -375,36 +381,52 @@ export function ToolsCollection() {
                     </button>
                   </div>
                 </div>
-                <a
-                  href={item.source_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-5 inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-[var(--foreground)]"
-                >
-                  Open resource
-                  <ExternalLink size={14} />
-                </a>
                 <ToolCategoryChips categories={item.categories} />
-                {item.saved_reason ? (
-                  <p className="archive-meta mt-3 line-clamp-2 border-t border-[var(--line)] pt-3">
-                    Saved because: {item.saved_reason}
-                  </p>
+                {item.saved_reason || item.used_for ? (
+                  <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-3">
+                    {item.saved_reason ? (
+                      <p className="archive-meta line-clamp-2">
+                        <span className="mr-1 text-[var(--foreground)]">Why</span>
+                        {item.saved_reason}
+                      </p>
+                    ) : null}
+                    {item.used_for ? (
+                      <p className="archive-meta line-clamp-2">
+                        <span className="mr-1 text-[var(--foreground)]">Use</span>
+                        {item.used_for}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
                 {relationshipLine ? (
                   <p className="archive-meta mt-3 border-t border-[var(--line)] pt-3">
+                    <span className="mr-1 text-[var(--foreground)]">Memory</span>
                     {relationshipLine}
                   </p>
                 ) : null}
-                <div className="mt-4 flex flex-wrap items-center gap-2">
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                   <AddToProjectButton sourceType="website" sourceId={item.id} />
+                  <a
+                    href={item.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-[var(--foreground)]"
+                  >
+                    Open
+                    <ExternalLink size={14} />
+                  </a>
                 </div>
               </motion.article>
               );
             })}
           </motion.section>
         ) : (
-          <div className="grid min-h-[34vh] place-items-center text-sm text-[var(--muted)]">
-            {items.length ? "No resources match these categories." : "No resources saved yet."}
+          <div className="grid min-h-[34vh] place-items-center px-4 text-center">
+            <p className="archive-panel max-w-md p-5 text-sm leading-6 text-[var(--muted)]">
+              {items.length
+                ? "No resources match this view. Clear a category or search term to widen the toolkit."
+                : "Save tools, websites, plugins, tutorials, references, and asset libraries here."}
+            </p>
           </div>
         )}
       </motion.main>
