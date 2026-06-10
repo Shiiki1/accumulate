@@ -132,6 +132,97 @@ select {
   box-shadow: var(--shadow-soft);
 }
 
+.archive-panel {
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.archive-card {
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  transition:
+    border-color 220ms var(--ease-out),
+    background-color 220ms var(--ease-out),
+    opacity 220ms var(--ease-out);
+}
+
+.archive-card:hover {
+  border-color: color-mix(in srgb, var(--foreground) 34%, var(--line));
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+}
+
+.archive-label {
+  font-size: 0.68rem;
+  line-height: 1rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.archive-meta {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+
+.archive-chip {
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1rem;
+  color: var(--muted);
+}
+
+.archive-button {
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  color: var(--muted);
+  transition:
+    border-color 180ms var(--ease-out),
+    color 180ms var(--ease-out),
+    background-color 180ms var(--ease-out);
+}
+
+.archive-button:hover {
+  border-color: color-mix(in srgb, var(--foreground) 36%, var(--line));
+  color: var(--foreground);
+}
+
+.archive-icon-button {
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  color: var(--muted);
+  transition:
+    border-color 180ms var(--ease-out),
+    color 180ms var(--ease-out),
+    background-color 180ms var(--ease-out);
+}
+
+.archive-icon-button:hover {
+  border-color: color-mix(in srgb, var(--line) 90%, transparent);
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--surface-soft) 54%, transparent);
+}
+
+.archive-field {
+  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  background: transparent;
+}
+
+.archive-field::placeholder {
+  color: var(--muted);
+}
+
+.board-object {
+  border: 1px solid color-mix(in srgb, var(--board-card-border) 82%, transparent);
+  background: color-mix(in srgb, var(--board-card-bg) 86%, transparent);
+  color: var(--board-card-text);
+}
+
+.board-object:hover {
+  border-color: color-mix(in srgb, var(--board-card-text) 24%, var(--board-card-border));
+}
+
 .image-skeleton {
   position: relative;
   overflow: hidden;

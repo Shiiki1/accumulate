@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { ArchivePersistence } from "@/components/ArchivePersistence";
 import { CommandPalette } from "@/components/CommandPalette";
 import { SmoothScroll } from "@/components/SmoothScroll";
 import { UniversalCapture } from "@/components/UniversalCapture";
@@ -54,6 +55,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col">
         <SmoothScroll>{children}</SmoothScroll>
+        <ArchivePersistence />
         <UniversalCapture />
         <CommandPalette />
       </body>

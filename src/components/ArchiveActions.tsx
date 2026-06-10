@@ -4,8 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Layers, Plus } from "lucide-react";
 import {
   addSourceToProject,
+  archiveEvents,
   MAX_INDICATORS_PER_ITEM,
   normalizeIndicatorIds,
+  readActiveProjectId,
+  readBoardItems,
   readIndicators,
 } from "@/lib/localArchive";
 import type { BoardSourceType, IndicatorItem } from "@/lib/types";
@@ -186,9 +189,30 @@ export function AddToProjectButton({
   sourceId,
 }: AddToProjectButtonProps) {
   const [label, setLabel] = useState("Add to Project");
+  const [usageCount, setUsageCount] = useState(0);
+
+  useEffect(() => {
+    function syncUsage() {
+      setUsageCount(
+        readBoardItems(readActiveProjectId()).filter(
+          (item) =>
+            item.source_type === sourceType && item.source_id === sourceId,
+        ).length,
+      );
+    }
+
+    const frame = window.requestAnimationFrame(syncUsage);
+    window.addEventListener(archiveEvents.boardItems, syncUsage);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener(archiveEvents.boardItems, syncUsage);
+    };
+  }, [sourceId, sourceType]);
 
   function handleClick() {
     addSourceToProject(sourceType, sourceId);
+    setUsageCount((current) => Math.max(current, 1));
     setLabel("Added");
     window.setTimeout(() => setLabel("Add to Project"), 1200);
   }
@@ -200,7 +224,7 @@ export function AddToProjectButton({
       className="inline-flex h-8 items-center gap-2 border border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
     >
       {label === "Added" ? <Layers size={13} /> : <Plus size={13} />}
-      {label}
+      {usageCount ? "Added to moodboard" : label}
     </button>
   );
 }

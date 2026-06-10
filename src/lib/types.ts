@@ -42,6 +42,8 @@ export type WebsiteItem = {
   user_id?: string | null;
   name: string;
   description: string;
+  saved_reason?: string;
+  used_for?: string;
   source_url: string;
   domain?: string;
   categories?: ToolCategory[];
@@ -131,15 +133,34 @@ export type BoardItem = {
   created_at: string;
 };
 
+export type ArchiveSnapshot = {
+  media: DisplayItem[];
+  resources: WebsiteItem[];
+  ideasReferences: IdeaItem[];
+  projects: ProjectItem[];
+  boards: PinboardItem[];
+  boardItems: BoardItem[];
+  indicators: IndicatorItem[];
+  collections: CollectionItem[];
+};
+
+type TableDefinition<Row, Insert = Row, Update = Partial<Row>> = {
+  Row: Row;
+  Insert: Insert;
+  Update: Update;
+  Relationships: [];
+};
+
+type SupabaseRow<T> = T & {
+  user_id: string;
+  updated_at?: string;
+};
+
 export type Database = {
   public: {
     Tables: {
-      items: {
-        Row: Item;
-        Insert: ItemInsert;
-        Update: ItemUpdate;
-        Relationships: [];
-      };
+      items: TableDefinition<Item, ItemInsert, ItemUpdate>;
+      media: TableDefinition<SupabaseRow<DisplayItem>>;
       website_items: {
         Row: WebsiteItem;
         Insert: Omit<WebsiteItem, "id" | "created_at"> & {
@@ -149,6 +170,7 @@ export type Database = {
         Update: Partial<Omit<WebsiteItem, "id" | "created_at">>;
         Relationships: [];
       };
+      resources: TableDefinition<SupabaseRow<WebsiteItem>>;
       idea_items: {
         Row: IdeaItem;
         Insert: Omit<IdeaItem, "id" | "created_at"> & {
@@ -158,6 +180,7 @@ export type Database = {
         Update: Partial<Omit<IdeaItem, "id" | "created_at">>;
         Relationships: [];
       };
+      ideas_references: TableDefinition<SupabaseRow<Required<Pick<IdeaItem, "entry_type">> & IdeaItem>>;
       collections: {
         Row: CollectionItem;
         Insert: Omit<CollectionItem, "id" | "created_at"> & {
@@ -177,14 +200,13 @@ export type Database = {
         Relationships: [];
       };
       projects: {
-        Row: ProjectItem;
-        Insert: Omit<ProjectItem, "id" | "created_at"> & {
-          id?: string;
-          created_at?: string;
-        };
-        Update: Partial<Omit<ProjectItem, "id" | "created_at">>;
+        Row: SupabaseRow<ProjectItem>;
+        Insert: SupabaseRow<ProjectItem>;
+        Update: Partial<SupabaseRow<ProjectItem>>;
         Relationships: [];
       };
+      boards: TableDefinition<SupabaseRow<PinboardItem>>;
+      board_items: TableDefinition<SupabaseRow<BoardItem>>;
       project_board_items: {
         Row: BoardItem;
         Insert: Omit<BoardItem, "id" | "created_at"> & {

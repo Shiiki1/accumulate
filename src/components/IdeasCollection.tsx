@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ChevronDown, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AddToProjectButton,
@@ -30,6 +30,10 @@ import {
   staggerParent,
   gridItemReveal,
 } from "@/lib/motion";
+import {
+  getSourceRelationships,
+  relationshipStatsLine,
+} from "@/lib/relationships";
 import type { IdeaItem } from "@/lib/types";
 
 type IdeaDraft = {
@@ -44,6 +48,7 @@ export function IdeasCollection() {
   const [items, setItems] = useState<IdeaItem[]>([]);
   const [openIds, setOpenIds] = useState<string[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [draftIndicatorIds, setDraftIndicatorIds] = useState<string[]>([]);
   const [activeIndicatorIds, setActiveIndicatorIds] = useState<string[]>([]);
   const [entryFilter, setEntryFilter] = useState<EntryFilter>("all");
@@ -52,6 +57,7 @@ export function IdeasCollection() {
   const [draftEntryType, setDraftEntryType] =
     useState<NonNullable<IdeaItem["entry_type"]>>("idea");
   const indicators = useIndicators();
+  const editingItem = items.find((item) => item.id === editingId) ?? null;
 
   useEffect(() => {
     function loadItems() {
@@ -93,6 +99,29 @@ export function IdeasCollection() {
     return () => window.removeEventListener(commandActions.addIdea, openAddIdea);
   }, []);
 
+  useEffect(() => {
+    const editId = window.sessionStorage.getItem("accumulate.editIdeaId");
+    if (!editId || !items.length) return;
+
+    const item = items.find((current) => current.id === editId);
+    if (!item) return;
+
+    window.sessionStorage.removeItem("accumulate.editIdeaId");
+    const timer = window.setTimeout(() => {
+      setEditingId(item.id);
+      setDraftIdea({
+        entry_type: item.entry_type ?? "idea",
+        title: item.title,
+        body: item.body,
+      });
+      setDraftEntryType(item.entry_type ?? "idea");
+      setDraftIndicatorIds(item.indicator_ids ?? []);
+      setIsAdding(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [items]);
+
   function persist(nextItems: IdeaItem[]) {
     setItems(nextItems);
     saveIdeaItems(nextItems);
@@ -108,21 +137,38 @@ export function IdeasCollection() {
 
     if (!title || (entryType === "idea" && !body)) return;
 
-    persist([
-      {
-        id: crypto.randomUUID(),
-        user_id: LOCAL_USER_ID,
-        entry_type: entryType,
-        title,
-        body,
-        indicator_ids: draftIndicatorIds,
-        created_at: new Date().toISOString(),
-      },
-      ...items,
-    ]);
+    if (editingItem) {
+      persist(
+        items.map((item) =>
+          item.id === editingItem.id
+            ? {
+                ...item,
+                entry_type: entryType,
+                title,
+                body,
+                indicator_ids: draftIndicatorIds,
+              }
+            : item,
+        ),
+      );
+    } else {
+      persist([
+        {
+          id: crypto.randomUUID(),
+          user_id: LOCAL_USER_ID,
+          entry_type: entryType,
+          title,
+          body,
+          indicator_ids: draftIndicatorIds,
+          created_at: new Date().toISOString(),
+        },
+        ...items,
+      ]);
+    }
 
     event.currentTarget.reset();
     setDraftIdea(null);
+    setEditingId(null);
     setDraftEntryType("idea");
     setDraftIndicatorIds([]);
     setIsAdding(false);
@@ -167,15 +213,15 @@ export function IdeasCollection() {
         animate="visible"
         className="mx-auto w-full max-w-7xl flex-1 px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pt-14"
       >
-        <section className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+        <section className="flex flex-col gap-8 border-b border-[var(--line)] pb-10 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.26em] text-[var(--muted)]">
+            <p className="archive-label">
               Ideas & References
             </p>
             <h1 className="font-serif-accent mt-3 text-6xl leading-none sm:text-7xl">
               Index archive.
             </h1>
-            <p className="mt-5 text-sm text-[var(--muted)]">
+            <p className="archive-meta mt-5 text-sm">
               {ideaCount} ideas / {referenceCount} references
             </p>
           </div>
@@ -184,10 +230,11 @@ export function IdeasCollection() {
               type="button"
               onClick={() => {
                 setDraftIdea(null);
+                setEditingId(null);
                 setDraftEntryType("idea");
                 setIsAdding(true);
               }}
-              className="inline-flex h-11 w-fit items-center gap-2 border border-[var(--line)] px-4 text-sm text-[var(--foreground)] transition hover:border-[var(--foreground)]"
+              className="archive-button inline-flex h-11 w-fit items-center gap-2 px-4 text-sm"
             >
               <Plus size={15} />
               Add Entry
@@ -201,10 +248,10 @@ export function IdeasCollection() {
                 key={filter}
                 type="button"
                 onClick={() => setEntryFilter(filter)}
-                className={`h-9 border px-3 text-xs capitalize transition ${
+                className={`h-9 px-3 text-xs capitalize transition ${
                   entryFilter === filter
-                    ? "border-[var(--foreground)] text-[var(--foreground)]"
-                    : "border-[var(--line)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                    ? "border border-[var(--foreground)] text-[var(--foreground)]"
+                    : "archive-button"
                 }`}
               >
                 {filter === "all"
@@ -223,7 +270,7 @@ export function IdeasCollection() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search ideas and references"
-            className="premium-focus h-10 w-full border border-[var(--line)] bg-transparent px-3 text-sm placeholder:text-[var(--muted)] md:w-64"
+            className="premium-focus archive-field h-10 w-full px-3 text-sm md:w-64"
           />
         </div>
 
@@ -238,26 +285,32 @@ export function IdeasCollection() {
               const isOpen = openIds.includes(item.id);
               const selectedIndicators = selectedIndicatorsFor(indicators, item);
               const isReference = (item.entry_type ?? "idea") === "reference";
+              const relationshipLine = relationshipStatsLine(
+                getSourceRelationships("idea", item.id),
+                isReference
+                  ? { includeRelatedMedia: true, includeRelatedIdeas: true }
+                  : { includeRelatedReferences: true },
+              );
 
               return (
                 <motion.article
                   variants={gridItemReveal}
                   key={item.id}
-                  className={`relative border border-[var(--line)] bg-[var(--surface-glass)] ${
+                  className={`archive-card relative ${
                     isReference ? "p-6" : "p-5"
                   }`}
                 >
                   <IndicatorMarks indicators={selectedIndicators} />
                   <div className="flex items-start justify-between gap-4">
                     <div className={isReference ? "pr-2" : ""}>
-                      <p className="mb-4 text-[10px] uppercase tracking-[0.22em] text-[var(--muted)]">
+                      <p className="archive-label mb-4 text-[10px]">
                         {isReference ? "Reference" : "Idea"}
                       </p>
                       <h2
                         className={
                           isReference
                             ? "font-serif-accent text-3xl leading-none"
-                            : "text-base font-medium"
+                            : "text-lg font-medium leading-snug"
                         }
                       >
                         {item.title}
@@ -266,7 +319,7 @@ export function IdeasCollection() {
                         className={`whitespace-pre-wrap text-sm text-[var(--muted)] ${
                           isReference
                             ? "mt-5 border-t border-[var(--line)] pt-4 leading-6"
-                            : "mt-3 leading-7"
+                            : "mt-4 max-w-[62ch] leading-7"
                         } ${
                           isOpen ? "" : "line-clamp-3"
                         }`}
@@ -284,7 +337,7 @@ export function IdeasCollection() {
                               : [...current, item.id],
                           )
                         }
-                        className="grid size-8 shrink-0 place-items-center border border-[var(--line)] text-[var(--muted)] transition hover:text-[var(--foreground)]"
+                        className="archive-icon-button size-8 shrink-0 border-[var(--line)]"
                         aria-label={isOpen ? "Collapse entry" : "Expand entry"}
                       >
                         <ChevronDown
@@ -296,10 +349,28 @@ export function IdeasCollection() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => {
+                          setEditingId(item.id);
+                          setDraftIdea({
+                            entry_type: item.entry_type ?? "idea",
+                            title: item.title,
+                            body: item.body,
+                          });
+                          setDraftEntryType(item.entry_type ?? "idea");
+                          setDraftIndicatorIds(item.indicator_ids ?? []);
+                          setIsAdding(true);
+                        }}
+                        className="archive-icon-button size-8 shrink-0"
+                        aria-label="Edit entry"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() =>
                           persist(items.filter((current) => current.id !== item.id))
                         }
-                        className="grid size-8 shrink-0 place-items-center border border-transparent text-[var(--muted)] transition hover:border-[var(--line)] hover:text-[var(--foreground)]"
+                        className="archive-icon-button size-8 shrink-0"
                         aria-label="Delete entry"
                       >
                         <Trash2 size={14} />
@@ -317,6 +388,11 @@ export function IdeasCollection() {
                     />
                     <AddToProjectButton sourceType="idea" sourceId={item.id} />
                   </div>
+                  {relationshipLine ? (
+                    <p className="archive-meta mt-4 border-t border-[var(--line)] pt-3">
+                      {relationshipLine}
+                    </p>
+                  ) : null}
                 </motion.article>
               );
             })}
@@ -342,21 +418,22 @@ export function IdeasCollection() {
             <motion.form
               variants={modalPanel}
               onSubmit={handleSubmit}
-              className="mx-auto max-w-xl space-y-4 border border-[var(--line)] bg-[var(--background)] p-5"
+              className="archive-panel mx-auto max-w-xl space-y-4 bg-[var(--background)] p-5"
             >
               <div className="flex items-start justify-between gap-5">
                 <h2 className="font-serif-accent text-4xl leading-none">
-                  Add entry.
+                  {editingItem ? "Edit entry." : "Add entry."}
                 </h2>
                 <button
                   type="button"
                   onClick={() => {
                     setIsAdding(false);
                     setDraftIdea(null);
+                    setEditingId(null);
                     setDraftEntryType("idea");
                     setDraftIndicatorIds([]);
                   }}
-                  className="grid size-9 place-items-center border border-[var(--line)] text-[var(--muted)]"
+                    className="archive-icon-button size-9 border-[var(--line)]"
                   aria-label="Close idea dialog"
                 >
                   <X size={16} />
@@ -384,6 +461,11 @@ export function IdeasCollection() {
                   </label>
                 ))}
               </div>
+              <p className="archive-meta leading-5">
+                {draftEntryType === "idea"
+                  ? "Idea: your own note, concept, direction, or plan."
+                  : "Reference: an external artist, brand, collection, aesthetic, place, or visual concept."}
+              </p>
               <input
                 name="title"
                 required
@@ -393,7 +475,7 @@ export function IdeasCollection() {
                     ? "Maison Margiela SS03"
                     : "Title"
                 }
-                className="premium-focus h-12 w-full border border-[var(--line)] bg-transparent px-3 text-sm"
+                className="premium-focus archive-field h-12 w-full px-3 text-sm"
               />
               <textarea
                 name="body"
@@ -405,7 +487,7 @@ export function IdeasCollection() {
                     ? "Optional context or note"
                     : "Idea"
                 }
-                className="premium-focus w-full resize-none border border-[var(--line)] bg-transparent px-3 py-3 text-sm leading-6"
+                className="premium-focus archive-field w-full resize-none px-3 py-3 text-sm leading-6"
               />
               <IndicatorMultiSelect
                 value={draftIndicatorIds}
@@ -415,7 +497,7 @@ export function IdeasCollection() {
                 type="submit"
                 className="h-11 bg-[var(--foreground)] px-5 text-sm font-medium text-[var(--background)] transition hover:opacity-90"
               >
-                Add entry
+                {editingItem ? "Save edit" : "Add entry"}
               </button>
             </motion.form>
           </motion.div>

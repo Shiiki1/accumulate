@@ -18,6 +18,12 @@ alter table public.project_board_items
   add constraint project_board_items_source_type_check
   check (source_type in ('media', 'website', 'idea', 'text', 'separator', 'reference'));
 
+alter table public.website_items
+  add column if not exists saved_reason text not null default '';
+
+alter table public.website_items
+  add column if not exists used_for text not null default '';
+
 create table if not exists public.collections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

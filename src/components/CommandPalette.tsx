@@ -29,8 +29,8 @@ const actions = [
     icon: ImagePlus,
   },
   {
-    label: "Add Tool",
-    hint: "Save website or resource",
+    label: "Add Resource",
+    hint: "Save website, source, or reference",
     href: "/app/tools",
     action: commandActions.addTool,
     icon: Wrench,

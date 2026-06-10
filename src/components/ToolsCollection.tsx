@@ -25,6 +25,10 @@ import {
   gridItemReveal,
 } from "@/lib/motion";
 import {
+  getSourceRelationships,
+  relationshipStatsLine,
+} from "@/lib/relationships";
+import {
   normalizeToolCategories,
   toolCategories,
   type ToolCategory,
@@ -68,10 +72,10 @@ function ToolCategoryButtons({
             key={category}
             type="button"
             onClick={() => toggleCategory(category, value, onChange)}
-            className={`h-8 border px-3 text-xs transition ${
+            className={`h-8 px-3 text-xs transition ${
               isActive
-                ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+                ? "border border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                : "archive-button"
             }`}
           >
             {category}
@@ -92,7 +96,7 @@ function ToolCategoryChips({ categories }: { categories?: string[] }) {
       {normalizedCategories.map((category) => (
         <span
           key={category}
-          className="border border-[var(--line)] px-2 py-1 text-[11px] text-[var(--muted)]"
+          className="archive-chip"
         >
           {category}
         </span>
@@ -105,6 +109,8 @@ type ToolDraft = {
   source_url?: string;
   name?: string;
   description?: string;
+  saved_reason?: string;
+  used_for?: string;
 };
 
 export function ToolsCollection() {
@@ -154,6 +160,24 @@ export function ToolsCollection() {
     return () => window.removeEventListener(commandActions.addTool, openAddTool);
   }, []);
 
+  useEffect(() => {
+    const editId = window.sessionStorage.getItem("accumulate.editResourceId");
+    if (!editId || !items.length) return;
+
+    const item = items.find((current) => current.id === editId);
+    if (!item) return;
+
+    window.sessionStorage.removeItem("accumulate.editResourceId");
+    const timer = window.setTimeout(() => {
+      setEditingId(item.id);
+      setDraftTool(null);
+      setDraftCategories(normalizeToolCategories(item.categories));
+      setIsAdding(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [items]);
+
   const editingItem = useMemo(
     () => items.find((item) => item.id === editingId) ?? null,
     [editingId, items],
@@ -171,6 +195,8 @@ export function ToolsCollection() {
     const name =
       String(formData.get("name") || "").trim() || titleFromUrl(sourceUrl);
     const description = String(formData.get("description") || "").trim();
+    const savedReason = String(formData.get("saved_reason") || "").trim();
+    const usedFor = String(formData.get("used_for") || "").trim();
 
     if (!sourceUrl) return;
 
@@ -182,6 +208,8 @@ export function ToolsCollection() {
                 ...item,
                 name,
                 description,
+                saved_reason: savedReason,
+                used_for: usedFor,
                 source_url: sourceUrl,
                 domain: urlDomain(sourceUrl),
                 categories: draftCategories,
@@ -200,6 +228,8 @@ export function ToolsCollection() {
           user_id: LOCAL_USER_ID,
           name,
           description,
+          saved_reason: savedReason,
+          used_for: usedFor,
           source_url: sourceUrl,
           domain: urlDomain(sourceUrl),
           categories: draftCategories,
@@ -226,6 +256,8 @@ export function ToolsCollection() {
       !normalizedSearch ||
       item.name.toLowerCase().includes(normalizedSearch) ||
       item.description.toLowerCase().includes(normalizedSearch) ||
+      (item.saved_reason ?? "").toLowerCase().includes(normalizedSearch) ||
+      (item.used_for ?? "").toLowerCase().includes(normalizedSearch) ||
       item.source_url.toLowerCase().includes(normalizedSearch) ||
       (item.domain ?? displayHost(item.source_url))
         .toLowerCase()
@@ -243,13 +275,13 @@ export function ToolsCollection() {
         animate="visible"
         className="mx-auto w-full max-w-7xl flex-1 px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pt-14"
       >
-        <section className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+        <section className="flex flex-col gap-8 border-b border-[var(--line)] pb-10 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.26em] text-[var(--muted)]">
-              Tools / Websites
+            <p className="archive-label">
+              Resources
             </p>
             <h1 className="font-serif-accent mt-3 text-6xl leading-none sm:text-7xl">
-              Useful sources.
+              Creative toolkit.
             </h1>
           </div>
           <button
@@ -260,10 +292,10 @@ export function ToolsCollection() {
               setDraftCategories([]);
               setIsAdding(true);
             }}
-            className="inline-flex h-11 w-fit items-center gap-2 border border-[var(--line)] px-4 text-sm text-[var(--foreground)] transition hover:border-[var(--foreground)]"
+            className="archive-button inline-flex h-11 w-fit items-center gap-2 px-4 text-sm"
           >
             <Plus size={15} />
-            Add Source
+            Add Resource
           </button>
         </section>
         <div className="mt-8">
@@ -275,8 +307,8 @@ export function ToolsCollection() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search sources"
-              className="premium-focus h-10 w-full border border-[var(--line)] bg-transparent px-3 text-sm placeholder:text-[var(--muted)] md:w-64"
+              placeholder="Search resources"
+              className="premium-focus archive-field h-10 w-full px-3 text-sm md:w-64"
             />
           </div>
         </div>
@@ -288,13 +320,19 @@ export function ToolsCollection() {
             animate="visible"
             className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
-            {filteredItems.map((item) => (
+            {filteredItems.map((item) => {
+              const relationshipLine = relationshipStatsLine(
+                getSourceRelationships("website", item.id),
+                { includeRelatedReferences: true },
+              );
+
+              return (
               <motion.article
                 variants={gridItemReveal}
                 key={item.id}
-                className="relative border border-[var(--line)] bg-[var(--surface-glass)] p-3"
+                className="archive-card relative p-4"
               >
-                <div className="grid aspect-[16/9] place-items-center border border-[var(--line)] bg-[var(--surface-soft)] text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
+                <div className="grid aspect-[16/8] place-items-center border border-[var(--line)] bg-[color-mix(in_srgb,var(--surface-soft)_72%,transparent)] px-4 text-center text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
                   {item.domain ?? displayHost(item.source_url)}
                 </div>
                 <div className="mt-4 flex items-start justify-between gap-4">
@@ -303,6 +341,11 @@ export function ToolsCollection() {
                     {item.description ? (
                       <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
                         {item.description}
+                      </p>
+                    ) : null}
+                    {item.used_for ? (
+                      <p className="archive-meta mt-3 line-clamp-1">
+                        Used for: {item.used_for}
                       </p>
                     ) : null}
                   </div>
@@ -315,8 +358,8 @@ export function ToolsCollection() {
                         setDraftCategories(normalizeToolCategories(item.categories));
                         setIsAdding(true);
                       }}
-                      className="grid size-8 place-items-center border border-transparent text-[var(--muted)] transition hover:border-[var(--line)] hover:text-[var(--foreground)]"
-                      aria-label="Edit website"
+                      className="archive-icon-button size-8"
+                      aria-label="Edit resource"
                     >
                       <Pencil size={14} />
                     </button>
@@ -325,8 +368,8 @@ export function ToolsCollection() {
                       onClick={() =>
                         persist(items.filter((current) => current.id !== item.id))
                       }
-                      className="grid size-8 place-items-center border border-transparent text-[var(--muted)] transition hover:border-[var(--line)] hover:text-[var(--foreground)]"
-                      aria-label="Delete website"
+                      className="archive-icon-button size-8"
+                      aria-label="Delete resource"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -338,19 +381,30 @@ export function ToolsCollection() {
                   rel="noreferrer"
                   className="mt-5 inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-[var(--foreground)]"
                 >
-                  Source
+                  Open resource
                   <ExternalLink size={14} />
                 </a>
                 <ToolCategoryChips categories={item.categories} />
+                {item.saved_reason ? (
+                  <p className="archive-meta mt-3 line-clamp-2 border-t border-[var(--line)] pt-3">
+                    Saved because: {item.saved_reason}
+                  </p>
+                ) : null}
+                {relationshipLine ? (
+                  <p className="archive-meta mt-3 border-t border-[var(--line)] pt-3">
+                    {relationshipLine}
+                  </p>
+                ) : null}
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <AddToProjectButton sourceType="website" sourceId={item.id} />
                 </div>
               </motion.article>
-            ))}
+              );
+            })}
           </motion.section>
         ) : (
           <div className="grid min-h-[34vh] place-items-center text-sm text-[var(--muted)]">
-            {items.length ? "No websites match these categories." : "No websites saved yet."}
+            {items.length ? "No resources match these categories." : "No resources saved yet."}
           </div>
         )}
       </motion.main>
@@ -367,11 +421,11 @@ export function ToolsCollection() {
             <motion.form
               variants={modalPanel}
               onSubmit={handleSubmit}
-              className="mx-auto max-w-xl space-y-4 border border-[var(--line)] bg-[var(--background)] p-5"
+              className="archive-panel mx-auto max-w-xl space-y-4 bg-[var(--background)] p-5"
             >
               <div className="flex items-start justify-between gap-5">
                 <h2 className="font-serif-accent text-4xl leading-none">
-                  {editingItem ? "Edit source." : "Add source."}
+                  {editingItem ? "Edit resource." : "Add resource."}
                 </h2>
                 <button
                   type="button"
@@ -381,7 +435,7 @@ export function ToolsCollection() {
                     setDraftTool(null);
                     setDraftCategories([]);
                   }}
-                  className="grid size-9 place-items-center border border-[var(--line)] text-[var(--muted)]"
+                    className="archive-icon-button size-9 border-[var(--line)]"
                   aria-label="Close source dialog"
                 >
                   <X size={16} />
@@ -394,25 +448,42 @@ export function ToolsCollection() {
                 required
                 defaultValue={editingItem?.source_url ?? draftTool?.source_url ?? ""}
                 placeholder="https://..."
-                className="premium-focus h-12 w-full border border-[var(--line)] bg-transparent px-3 text-sm"
+                className="premium-focus archive-field h-12 w-full px-3 text-sm"
               />
               <input
                 key={`${editingItem?.id ?? "new"}-name`}
                 name="name"
                 defaultValue={editingItem?.name ?? draftTool?.name ?? ""}
                 placeholder="Name, optional"
-                className="premium-focus h-12 w-full border border-[var(--line)] bg-transparent px-3 text-sm"
+                className="premium-focus archive-field h-12 w-full px-3 text-sm"
               />
               <input
                 key={`${editingItem?.id ?? "new"}-description`}
                 name="description"
                 defaultValue={editingItem?.description ?? draftTool?.description ?? ""}
                 placeholder="One-sentence function"
-                className="premium-focus h-12 w-full border border-[var(--line)] bg-transparent px-3 text-sm"
+                className="premium-focus archive-field h-12 w-full px-3 text-sm"
+              />
+              <input
+                key={`${editingItem?.id ?? "new"}-used-for`}
+                name="used_for"
+                defaultValue={editingItem?.used_for ?? draftTool?.used_for ?? ""}
+                placeholder="Used for, optional"
+                className="premium-focus archive-field h-12 w-full px-3 text-sm"
+              />
+              <textarea
+                key={`${editingItem?.id ?? "new"}-saved-reason`}
+                name="saved_reason"
+                rows={3}
+                defaultValue={
+                  editingItem?.saved_reason ?? draftTool?.saved_reason ?? ""
+                }
+                placeholder="Saved because, optional"
+                className="premium-focus archive-field w-full resize-none px-3 py-3 text-sm leading-6"
               />
               <div className="space-y-3">
-                <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
-                  Categories
+                <p className="archive-label">
+                  Resource type / categories
                 </p>
                 <ToolCategoryButtons
                   value={draftCategories}
@@ -423,7 +494,7 @@ export function ToolsCollection() {
                 type="submit"
                 className="h-11 bg-[var(--foreground)] px-5 text-sm font-medium text-[var(--background)] transition hover:opacity-90"
               >
-                {editingItem ? "Save edit" : "Add website"}
+                {editingItem ? "Save edit" : "Add resource"}
               </button>
             </motion.form>
           </motion.div>

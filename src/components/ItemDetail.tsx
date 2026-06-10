@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -16,16 +16,18 @@ import {
 import { itemCategories, type ItemCategory } from "@/lib/categories";
 import {
   deleteMediaItem,
-  fileToDataUrl,
   findMediaItem,
   updateMediaItem,
 } from "@/lib/localArchive";
+import { RelationshipMemory } from "@/components/RelationshipMemory";
 import {
   IndicatorMultiSelect,
   selectedIndicatorsFor,
   useIndicators,
 } from "@/components/ArchiveActions";
 import { pageReveal } from "@/lib/motion";
+import { getSourceRelationships } from "@/lib/relationships";
+import { deleteStoredMediaFile, uploadMediaFile } from "@/lib/storage";
 import type { DisplayItem, ImageType } from "@/lib/types";
 
 type ItemDetailProps = {
@@ -39,10 +41,18 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const indicators = useIndicators();
+  const relationships = useMemo(
+    () => (currentItem ? getSourceRelationships("media", currentItem.id) : null),
+    [currentItem],
+  );
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       setCurrentItem(findMediaItem(itemId));
+      if (window.sessionStorage.getItem("accumulate.editMediaId") === itemId) {
+        window.sessionStorage.removeItem("accumulate.editMediaId");
+        setIsEditing(true);
+      }
     });
 
     return () => window.cancelAnimationFrame(frame);
@@ -54,7 +64,10 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
     const confirmed = window.confirm("Delete this item?");
     if (!confirmed) return;
 
+    const imageUrlToDelete =
+      currentItem.image_type === "upload" ? currentItem.image_url : null;
     deleteMediaItem(currentItem.id);
+    void deleteStoredMediaFile(imageUrlToDelete).catch(() => undefined);
     router.replace("/app/media");
   }
 
@@ -87,11 +100,13 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
       let imageUrl = currentItem.image_url;
       let displayUrl = currentItem.display_url;
       let imageType: ImageType = currentItem.image_type;
+      const imageUrlToDelete =
+        currentItem.image_type === "upload" ? currentItem.image_url : null;
 
       if (file instanceof File && file.size > 0) {
-        const dataUrl = await fileToDataUrl(file);
-        imageUrl = dataUrl;
-        displayUrl = dataUrl;
+        const uploaded = await uploadMediaFile(file);
+        imageUrl = uploaded.publicUrl;
+        displayUrl = uploaded.publicUrl;
         imageType = "upload";
       } else if (remoteImageUrl && remoteImageUrl !== currentItem.image_url) {
         imageUrl = remoteImageUrl;
@@ -113,6 +128,9 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
 
       setCurrentItem(updated);
       setIsEditing(false);
+      if (imageUrlToDelete && imageUrlToDelete !== imageUrl) {
+        void deleteStoredMediaFile(imageUrlToDelete).catch(() => undefined);
+      }
     } catch (updateError) {
       setError(
         updateError instanceof Error
@@ -171,7 +189,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
             <button
               type="button"
               onClick={() => setIsEditing((value) => !value)}
-              className="grid size-9 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface-glass)] transition duration-300 hover:border-[var(--foreground)]"
+              className="archive-icon-button size-9 rounded-full border-[var(--line)] bg-[var(--surface-glass)]"
               aria-label={isEditing ? "Cancel edit" : "Edit item"}
               title={isEditing ? "Cancel edit" : "Edit item"}
             >
@@ -180,7 +198,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
             <button
               type="button"
               onClick={handleDelete}
-              className="grid size-9 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface-glass)] transition duration-300 hover:border-[var(--foreground)]"
+              className="archive-icon-button size-9 rounded-full border-[var(--line)] bg-[var(--surface-glass)]"
               aria-label="Delete item"
               title="Delete item"
             >
@@ -192,7 +210,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
           <motion.div
             layoutId={`item-image-${currentItem.id}`}
-            className="image-skeleton relative min-h-[58vh] overflow-hidden rounded-[18px] border border-[var(--line)] bg-[var(--surface-soft)] lg:min-h-[82vh]"
+            className="image-skeleton relative min-h-[58vh] overflow-hidden border border-[var(--line)] bg-[var(--surface-soft)] lg:min-h-[82vh]"
           >
             <Image
               src={currentItem.display_url}
@@ -209,7 +227,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
             {isEditing ? (
               <form
                 onSubmit={handleUpdate}
-                className="quiet-panel space-y-4 rounded-[18px] p-5 shadow-none"
+                className="archive-panel space-y-4 p-5 shadow-none"
               >
                 <label className="block">
                   <span className="mb-2 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
@@ -219,7 +237,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                     name="image"
                     type="file"
                     accept="image/*"
-                    className="w-full rounded-md border border-[var(--line)] px-3 py-2 text-sm file:mr-3 file:rounded-full file:border-0 file:bg-[var(--foreground)] file:px-3 file:py-1.5 file:text-xs file:text-[var(--background)]"
+                    className="archive-field w-full px-3 py-2 text-sm file:mr-3 file:rounded-full file:border-0 file:bg-[var(--foreground)] file:px-3 file:py-1.5 file:text-xs file:text-[var(--background)]"
                   />
                 </label>
                 <label className="block">
@@ -235,7 +253,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                         : ""
                     }
                     placeholder="Optional"
-                    className="premium-focus h-11 w-full rounded-md border border-[var(--line)] bg-transparent px-3 text-sm"
+                    className="premium-focus archive-field h-11 w-full px-3 text-sm"
                   />
                 </label>
                 <label className="block">
@@ -245,7 +263,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                   <input
                     name="title"
                     defaultValue={currentItem.title}
-                    className="premium-focus h-11 w-full rounded-md border border-[var(--line)] bg-transparent px-3 text-sm"
+                    className="premium-focus archive-field h-11 w-full px-3 text-sm"
                   />
                 </label>
                 <label className="block">
@@ -256,7 +274,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                     name="source_url"
                     type="url"
                     defaultValue={currentItem.source_url || ""}
-                    className="premium-focus h-11 w-full rounded-md border border-[var(--line)] bg-transparent px-3 text-sm"
+                    className="premium-focus archive-field h-11 w-full px-3 text-sm"
                   />
                 </label>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
@@ -267,7 +285,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                     <select
                       name="category"
                       defaultValue={currentItem.category}
-                      className="premium-focus h-11 w-full rounded-md border border-[var(--line)] bg-[var(--background)] px-3 text-sm"
+                      className="premium-focus archive-field h-11 w-full bg-[var(--background)] px-3 text-sm"
                     >
                       {itemCategories.map((category) => (
                         <option key={category} value={category}>
@@ -298,7 +316,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                     <input
                       name="tags"
                       defaultValue={currentItem.tags.join(", ")}
-                      className="premium-focus h-11 w-full rounded-md border border-[var(--line)] bg-transparent px-3 text-sm"
+                      className="premium-focus archive-field h-11 w-full px-3 text-sm"
                     />
                   </label>
                 </div>
@@ -310,7 +328,7 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                     name="notes"
                     defaultValue={currentItem.notes || ""}
                     rows={6}
-                    className="premium-focus w-full resize-none rounded-md border border-[var(--line)] bg-transparent px-3 py-3 text-sm leading-6"
+                    className="premium-focus archive-field w-full resize-none px-3 py-3 text-sm leading-6"
                   />
                 </label>
                 {error ? (
@@ -396,6 +414,13 @@ export function ItemDetail({ itemId }: ItemDetailProps) {
                     Source
                     <ExternalLink size={14} strokeWidth={1.8} />
                   </a>
+                ) : null}
+
+                {relationships ? (
+                  <RelationshipMemory
+                    relationships={relationships}
+                    related={["references", "ideas", "resources"]}
+                  />
                 ) : null}
 
                 {error ? (

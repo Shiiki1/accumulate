@@ -28,6 +28,7 @@ import {
   selectedIndicatorsFor,
 } from "@/components/ArchiveActions";
 import { MinimalHeader } from "@/components/MinimalHeader";
+import { RelationshipMemory } from "@/components/RelationshipMemory";
 import { openQuickCapture } from "@/components/UniversalCapture";
 import {
   commandActions,
@@ -56,6 +57,7 @@ import {
   updateBoardItem,
 } from "@/lib/localArchive";
 import { modalOverlay, modalPanel, pageReveal } from "@/lib/motion";
+import { getSourceRelationships } from "@/lib/relationships";
 import type {
   BoardItem,
   DisplayItem,
@@ -142,10 +144,17 @@ function sourceRoute(sourceType: BoardItem["source_type"]) {
   return null;
 }
 
+function sourceDetailRoute(item: ResolvedBoardItem) {
+  if (item.source_type === "media") return `/app/item/${item.source_id}`;
+  return sourceRoute(item.source_type);
+}
+
 function sourceLabel(item: ResolvedBoardItem) {
   if (item.source_type === "idea" && item.source && "body" in item.source) {
     return item.source.entry_type === "reference" ? "reference" : "idea";
   }
+
+  if (item.source_type === "website") return "resource";
 
   return item.source_type;
 }
@@ -236,7 +245,7 @@ function BoardCard({
       className={`group cursor-grab transition-shadow duration-200 active:cursor-grabbing active:shadow-[var(--shadow-soft)] ${
         item.source_type === "text" && !item.text_box_enabled
           ? ""
-          : "border border-[var(--board-card-border)] bg-[var(--board-card-bg)] text-[var(--board-card-text)]"
+          : "board-object"
       } ${isSeparator ? "border-transparent bg-transparent" : "overflow-hidden"}`}
     >
       {item.indicators.length ? (
@@ -258,7 +267,7 @@ function BoardCard({
           style={{ backgroundColor: item.separator_color ?? "var(--board-line-strong)" }}
         />
       ) : item.source_type === "reference" ? (
-        <div className="flex h-full flex-col border border-[var(--board-line-strong)] bg-[color-mix(in_srgb,var(--board-card-bg)_86%,transparent)] p-4">
+        <div className="flex h-full flex-col border border-[color-mix(in_srgb,var(--board-line-strong)_72%,transparent)] bg-[color-mix(in_srgb,var(--board-card-bg)_82%,transparent)] p-4">
           <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--board-muted)]">
             Reference
           </p>
@@ -446,11 +455,11 @@ function BoardSection({
       }`}
     >
       <div className="mb-3 flex items-center justify-between gap-4 px-1">
-        <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
+        <p className="archive-label">
           {board.title}
         </p>
         <div className="flex gap-2">
-          <div className="mr-1 flex border border-[var(--line)]">
+          <div className="mr-1 flex border border-[color-mix(in_srgb,var(--line)_82%,transparent)]">
             {(["free", "soft"] as const).map((mode) => (
               <button
                 key={mode}
@@ -469,7 +478,7 @@ function BoardSection({
           <button
             type="button"
             onClick={() => onAddText(board.id)}
-            className="inline-flex h-8 items-center gap-2 border border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
             <Type size={13} />
             Text
@@ -477,7 +486,7 @@ function BoardSection({
           <button
             type="button"
             onClick={() => onAddReference(board.id)}
-            className="inline-flex h-8 items-center gap-2 border border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
             <Bookmark size={13} />
             Reference
@@ -485,7 +494,7 @@ function BoardSection({
           <button
             type="button"
             onClick={() => onAddSeparator(board.id)}
-            className="inline-flex h-8 items-center gap-2 border border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
             <Minus size={13} />
             Separator
@@ -493,7 +502,7 @@ function BoardSection({
           <button
             type="button"
             onClick={onAddBoard}
-            className="inline-flex h-8 items-center gap-2 border border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
             <Plus size={13} />
             Board
@@ -501,7 +510,7 @@ function BoardSection({
           <button
             type="button"
             onClick={() => onDeleteBoard(board.id)}
-            className="inline-flex h-8 items-center gap-2 border border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
             <Trash2 size={13} />
             Remove
@@ -516,11 +525,11 @@ function BoardSection({
         style={{
           minHeight: board.height ?? 680,
           boxShadow:
-            "inset 0 0 0 1px color-mix(in srgb, var(--board-line-strong) 58%, transparent)",
+            "inset 0 0 0 1px color-mix(in srgb, var(--board-line-strong) 38%, transparent)",
         }}
       >
-        <div className="pointer-events-none absolute inset-0 opacity-14 [background-image:linear-gradient(var(--board-grid)_1px,transparent_1px),linear-gradient(90deg,var(--board-grid)_1px,transparent_1px)] [background-size:48px_48px]" />
-        <div className="pointer-events-none absolute inset-0 opacity-24 [background-image:linear-gradient(var(--board-line-strong)_1px,transparent_1px),linear-gradient(90deg,var(--board-line-strong)_1px,transparent_1px)] [background-size:192px_192px]" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:linear-gradient(var(--board-grid)_1px,transparent_1px),linear-gradient(90deg,var(--board-grid)_1px,transparent_1px)] [background-size:48px_48px]" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(var(--board-line-strong)_1px,transparent_1px),linear-gradient(90deg,var(--board-line-strong)_1px,transparent_1px)] [background-size:192px_192px]" />
         {items.map((item) => (
           <BoardCard
             key={item.id}
@@ -546,7 +555,7 @@ function BoardSection({
                 Empty surface
               </p>
               <p className="mt-4 max-w-sm text-sm leading-6 text-[var(--muted)]">
-                Add media, tools, ideas, or text blocks to this pinboard.
+                Add media, resources, ideas, or text blocks to this pinboard.
               </p>
             </div>
           </div>
@@ -598,7 +607,7 @@ export function MoodboardHome() {
   }
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => load());
+    const timer = window.setTimeout(() => load(), 0);
     function handleIndicators() {
       load(activeProjectId);
     }
@@ -618,7 +627,7 @@ export function MoodboardHome() {
     }
 
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
       window.removeEventListener("accumulate:indicators", handleIndicators);
       window.removeEventListener(archiveEvents.media, handleIndicators);
       window.removeEventListener(archiveEvents.websites, handleIndicators);
@@ -627,6 +636,15 @@ export function MoodboardHome() {
       window.removeEventListener(commandActions.switchProject, openSwitcher);
     };
   }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!projects.length || pinboards.length) return;
+    const timer = window.setTimeout(() => {
+      setPinboards(readPinboards(activeProjectId));
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [activeProjectId, pinboards.length, projects.length]);
 
   useEffect(() => {
     function openMenu(event: Event) {
@@ -679,6 +697,20 @@ export function MoodboardHome() {
       ];
     });
   }, [boardItems, ideaItems, indicators, mediaItems, websiteItems]);
+
+  const infoRelationships = useMemo(() => {
+    if (
+      !infoItem ||
+      (infoItem.source_type !== "media" &&
+        infoItem.source_type !== "website" &&
+        infoItem.source_type !== "idea" &&
+        infoItem.source_type !== "reference")
+    ) {
+      return null;
+    }
+
+    return getSourceRelationships(infoItem.source_type, infoItem.source_id);
+  }, [infoItem]);
 
   function syncProject(projectId: string) {
     saveActiveProjectId(projectId);
@@ -795,9 +827,31 @@ export function MoodboardHome() {
   }
 
   function goToSource(item: ResolvedBoardItem) {
-    const route = sourceRoute(item.source_type);
+    const route = sourceDetailRoute(item);
     if (!route) return;
     router.push(route);
+  }
+
+  function editSource(item: ResolvedBoardItem) {
+    if (item.source_type === "media") {
+      window.sessionStorage.setItem("accumulate.editMediaId", item.source_id);
+      router.push(`/app/item/${item.source_id}`);
+      return;
+    }
+
+    if (item.source_type === "website") {
+      window.sessionStorage.setItem("accumulate.editResourceId", item.source_id);
+      router.push("/app/tools");
+      return;
+    }
+
+    if (item.source_type === "idea") {
+      window.sessionStorage.setItem("accumulate.editIdeaId", item.source_id);
+      router.push("/app/ideas");
+      return;
+    }
+
+    setEditItem(item);
   }
 
   function addText(boardId: string) {
@@ -968,11 +1022,7 @@ export function MoodboardHome() {
           <button
             type="button"
             onClick={() => {
-              if (sourceRoute(contextMenu.item.source_type)) {
-                goToSource(contextMenu.item);
-              } else {
-                setEditItem(contextMenu.item);
-              }
+              setInfoItem(contextMenu.item);
               setContextMenu(null);
             }}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]"
@@ -987,13 +1037,13 @@ export function MoodboardHome() {
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]"
             >
               <ExternalLink size={13} />
-              Go to source listing
+              View in library
             </button>
           ) : null}
           <button
             type="button"
             onClick={() => {
-              setInfoItem(contextMenu.item);
+              editSource(contextMenu.item);
               setContextMenu(null);
             }}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]"
@@ -1031,11 +1081,11 @@ export function MoodboardHome() {
           >
             <motion.div
               variants={modalPanel}
-              className="mx-auto max-w-lg border border-[var(--line)] bg-[var(--background)] p-5"
+              className="archive-panel mx-auto max-w-2xl bg-[var(--background)] p-5"
             >
               <div className="flex items-start justify-between gap-5">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
+                  <p className="archive-label">
                     {sourceLabel(infoItem)}
                   </p>
                   <h2 className="font-serif-accent mt-2 text-4xl leading-none">
@@ -1047,7 +1097,7 @@ export function MoodboardHome() {
                 <button
                   type="button"
                   onClick={() => setInfoItem(null)}
-                  className="grid size-9 place-items-center border border-[var(--line)] text-[var(--muted)]"
+                  className="archive-icon-button size-9 border-[var(--line)]"
                   aria-label="Close info"
                 >
                   <X size={16} />
@@ -1055,7 +1105,7 @@ export function MoodboardHome() {
               </div>
 
               {infoItem.source ? (
-                <div className="mt-6 space-y-3 text-sm leading-6 text-[var(--muted)]">
+                <div className="mt-6 space-y-4 text-sm leading-6 text-[var(--muted)]">
                   {"display_url" in infoItem.source ? (
                     <div className="image-skeleton relative aspect-[4/3] overflow-hidden bg-[var(--surface-soft)]">
                       <Image
@@ -1068,13 +1118,43 @@ export function MoodboardHome() {
                       />
                     </div>
                   ) : null}
-                  <p>{sourceText(infoItem.source)}</p>
+                  {"display_url" in infoItem.source && infoItem.source.notes ? (
+                    <p className="archive-panel whitespace-pre-wrap p-3">
+                      Description: {infoItem.source.notes}
+                    </p>
+                  ) : null}
+                  {"description" in infoItem.source &&
+                  infoItem.source.description ? (
+                    <p className="archive-panel p-3">Description: {infoItem.source.description}</p>
+                  ) : null}
+                  {"body" in infoItem.source ? (
+                    <p className="archive-panel whitespace-pre-wrap p-3">
+                      Content: {infoItem.source.body || "No content added."}
+                    </p>
+                  ) : null}
                   {"category" in infoItem.source ? (
                     <p>Category: {infoItem.source.category}</p>
+                  ) : null}
+                  {"tags" in infoItem.source && infoItem.source.tags.length ? (
+                    <p>Tags: {infoItem.source.tags.join(", ")}</p>
+                  ) : null}
+                  {"source_url" in infoItem.source &&
+                  infoItem.source.source_url ? (
+                    <p>URL: {infoItem.source.source_url}</p>
+                  ) : null}
+                  {"domain" in infoItem.source && infoItem.source.domain ? (
+                    <p>Domain: {infoItem.source.domain}</p>
                   ) : null}
                   {"categories" in infoItem.source &&
                   infoItem.source.categories?.length ? (
                     <p>Categories: {infoItem.source.categories.join(", ")}</p>
+                  ) : null}
+                  {"saved_reason" in infoItem.source &&
+                  infoItem.source.saved_reason ? (
+                    <p>Saved because: {infoItem.source.saved_reason}</p>
+                  ) : null}
+                  {"used_for" in infoItem.source && infoItem.source.used_for ? (
+                    <p>Used for: {infoItem.source.used_for}</p>
                   ) : null}
                   {infoItem.indicators.length ? (
                     <p>
@@ -1088,16 +1168,9 @@ export function MoodboardHome() {
                     Date added:{" "}
                     {new Date(infoItem.source.created_at).toLocaleDateString()}
                   </p>
-                  <p>
-                    Project uses:{" "}
-                    {
-                      boardItems.filter(
-                        (item) =>
-                          item.source_type === infoItem.source_type &&
-                          item.source_id === infoItem.source_id,
-                      ).length
-                    }
-                  </p>
+                  {infoRelationships ? (
+                    <RelationshipMemory relationships={infoRelationships} />
+                  ) : null}
                   {"source_url" in infoItem.source &&
                   infoItem.source.source_url ? (
                     <a
@@ -1138,6 +1211,9 @@ export function MoodboardHome() {
                   <p>
                     Date added: {new Date(infoItem.created_at).toLocaleDateString()}
                   </p>
+                  {infoRelationships ? (
+                    <RelationshipMemory relationships={infoRelationships} />
+                  ) : null}
                 </div>
               ) : null}
 
@@ -1157,11 +1233,11 @@ export function MoodboardHome() {
               variants={modalPanel}
               role="dialog"
               aria-modal="true"
-              className="mx-auto max-w-lg border border-[var(--line)] bg-[var(--background)] p-5"
+                  className="archive-panel mx-auto max-w-lg bg-[var(--background)] p-5"
             >
               <div className="flex items-start justify-between gap-5">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
+                  <p className="archive-label">
                     Edit {editItem.source_type}
                   </p>
                   <h2 className="font-serif-accent mt-2 text-4xl leading-none">
@@ -1171,7 +1247,7 @@ export function MoodboardHome() {
                 <button
                   type="button"
                   onClick={() => setEditItem(null)}
-                  className="grid size-9 place-items-center border border-[var(--line)] text-[var(--muted)]"
+                  className="archive-icon-button size-9 border-[var(--line)]"
                   aria-label="Close editor"
                 >
                   <X size={16} />

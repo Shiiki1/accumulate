@@ -43,7 +43,7 @@ export function AuthForm({ supabaseConfigured }: AuthFormProps) {
       </p>
       {!supabaseConfigured ? (
         <p className="mt-6 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm leading-6 text-[var(--muted)]">
-          Add your Supabase URL and publishable key to `.env.local` before
+          Add your Supabase URL and anon key to `.env.local` before
           signing in.
         </p>
       ) : null}

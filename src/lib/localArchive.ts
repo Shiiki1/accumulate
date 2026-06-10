@@ -1,6 +1,7 @@
 import type {
   BoardItem,
   BoardSourceType,
+  ArchiveSnapshot,
   CollectionItem,
   DisplayItem,
   IdeaItem,
@@ -11,6 +12,22 @@ import type {
 } from "@/lib/types";
 import { urlDomain } from "@/lib/clipboard";
 import { normalizeToolCategories } from "@/lib/toolCategories";
+import {
+  bootstrapSupabaseArchive,
+  deleteSupabaseBoard,
+  deleteSupabaseBoardItem,
+  deleteSupabaseMedia,
+  deleteSupabaseProject,
+  persistSupabaseBoardItems,
+  persistSupabaseBoards,
+  persistSupabaseMedia,
+  persistSupabaseProjects,
+  replaceSupabaseCollections,
+  replaceSupabaseIdeas,
+  replaceSupabaseIndicators,
+  replaceSupabaseResources,
+  saveSupabaseArchive,
+} from "@/lib/supabaseArchive";
 
 export const LOCAL_USER_ID = "local-archive";
 export const MAX_INDICATORS_PER_ITEM = 5;
@@ -55,6 +72,49 @@ function writeItems<T>(key: string, items: T[]) {
   window.localStorage.setItem(key, JSON.stringify(items));
 }
 
+function ignorePersistenceError(error: unknown) {
+  if (process.env.NODE_ENV !== "production") {
+    console.warn("Archive persistence failed:", error);
+  }
+}
+
+function persist(promise: Promise<unknown>) {
+  void promise.catch(ignorePersistenceError);
+}
+
+function createDefaultProject(userId = LOCAL_USER_ID): ProjectItem {
+  return {
+    id: "default-project",
+    user_id: userId,
+    title: "Current Project",
+    created_at: new Date().toISOString(),
+  };
+}
+
+function createDefaultSnapshot(userId = LOCAL_USER_ID): ArchiveSnapshot {
+  const project = createDefaultProject(userId);
+
+  return {
+    media: [],
+    resources: [],
+    ideasReferences: [],
+    projects: [project],
+    boards: [
+      {
+        id: `${project.id}-board-1`,
+        project_id: project.id,
+        title: "Pinboard 1",
+        order: 0,
+        height: 680,
+        created_at: new Date().toISOString(),
+      },
+    ],
+    boardItems: [],
+    indicators: [],
+    collections: [],
+  };
+}
+
 export function normalizeIndicatorIds(item: {
   indicator_ids?: string[];
   indicator_id?: string | null;
@@ -71,6 +131,53 @@ export function normalizeIndicatorIds(item: {
   );
 }
 
+function readArchiveSnapshot(): ArchiveSnapshot {
+  return {
+    media: readMediaItems(),
+    resources: readWebsiteItems(),
+    ideasReferences: readIdeaItems(),
+    projects: readProjects(),
+    boards: readItems<PinboardItem>(pinboardsKey).map((board) => ({
+      ...board,
+      height: board.height ?? 680,
+    })),
+    boardItems: readItems<BoardItem>(boardItemsKey).map(normalizeBoardItem),
+    indicators: readIndicators(),
+    collections: readCollections(),
+  };
+}
+
+function replaceArchiveSnapshot(snapshot: ArchiveSnapshot) {
+  writeItems(mediaKey, snapshot.media);
+  writeItems(websitesKey, snapshot.resources);
+  writeItems(ideasKey, snapshot.ideasReferences);
+  writeItems(projectsKey, snapshot.projects);
+  writeItems(pinboardsKey, snapshot.boards);
+  writeItems(boardItemsKey, snapshot.boardItems);
+  writeItems(indicatorsKey, snapshot.indicators);
+  writeItems(collectionsKey, snapshot.collections);
+
+  emitArchiveEvent(archiveEvents.media);
+  emitArchiveEvent(archiveEvents.websites);
+  emitArchiveEvent(archiveEvents.ideas);
+  emitArchiveEvent(archiveEvents.boardItems);
+  emitArchiveEvent(archiveEvents.projects);
+  emitArchiveEvent(archiveEvents.collections);
+  emitArchiveEvent("accumulate:indicators");
+}
+
+export async function bootstrapArchivePersistence() {
+  const result = await bootstrapSupabaseArchive(
+    readArchiveSnapshot(),
+    createDefaultSnapshot,
+  );
+
+  if (!result) return null;
+
+  replaceArchiveSnapshot(result.snapshot);
+  return result;
+}
+
 export function readMediaItems() {
   return readItems<DisplayItem>(mediaKey).map((item) => ({
     ...item,
@@ -85,6 +192,7 @@ export function saveMediaItem(item: DisplayItem) {
   };
   const items = [savedItem, ...readMediaItems()];
   writeItems(mediaKey, items);
+  persist(persistSupabaseMedia([savedItem]));
   emitArchiveEvent(archiveEvents.media);
   return savedItem;
 }
@@ -98,6 +206,7 @@ export function updateMediaItem(item: DisplayItem) {
     current.id === savedItem.id ? savedItem : current,
   );
   writeItems(mediaKey, items);
+  persist(persistSupabaseMedia([savedItem]));
   emitArchiveEvent(archiveEvents.media);
   return savedItem;
 }
@@ -110,6 +219,7 @@ export function saveMediaItems(items: DisplayItem[]) {
       indicator_ids: normalizeIndicatorIds(item),
     })),
   );
+  persist(persistSupabaseMedia(items));
   emitArchiveEvent(archiveEvents.media);
 }
 
@@ -118,6 +228,7 @@ export function deleteMediaItem(id: string) {
     mediaKey,
     readMediaItems().filter((item) => item.id !== id),
   );
+  persist(deleteSupabaseMedia(id));
   emitArchiveEvent(archiveEvents.media);
 }
 
@@ -128,6 +239,8 @@ export function findMediaItem(id: string) {
 export function readWebsiteItems() {
   return readItems<WebsiteItem>(websitesKey).map((item) => ({
     ...item,
+    saved_reason: item.saved_reason ?? "",
+    used_for: item.used_for ?? "",
     domain: item.domain ?? urlDomain(item.source_url),
     categories: normalizeToolCategories(item.categories),
     indicator_ids: normalizeIndicatorIds(item),
@@ -139,11 +252,14 @@ export function saveWebsiteItems(items: WebsiteItem[]) {
     websitesKey,
     items.map((item) => ({
       ...item,
+      saved_reason: item.saved_reason ?? "",
+      used_for: item.used_for ?? "",
       domain: item.domain ?? urlDomain(item.source_url),
       categories: normalizeToolCategories(item.categories),
       indicator_ids: normalizeIndicatorIds(item),
     })),
   );
+  persist(replaceSupabaseResources(items));
   emitArchiveEvent(archiveEvents.websites);
 }
 
@@ -164,6 +280,7 @@ export function saveIdeaItems(items: IdeaItem[]) {
       indicator_ids: normalizeIndicatorIds(item),
     })),
   );
+  persist(replaceSupabaseIdeas(items));
   emitArchiveEvent(archiveEvents.ideas);
 }
 
@@ -182,6 +299,7 @@ export function saveCollections(collections: CollectionItem[]) {
       source_ids: collection.source_ids ?? [],
     })),
   );
+  persist(replaceSupabaseCollections(collections));
   emitArchiveEvent(archiveEvents.collections);
 }
 
@@ -190,19 +308,16 @@ export function readProjects() {
 
   if (projects.length) return projects;
 
-  const defaultProject: ProjectItem = {
-    id: "default-project",
-    user_id: LOCAL_USER_ID,
-    title: "Current Project",
-    created_at: new Date().toISOString(),
-  };
+  const defaultProject = createDefaultProject();
 
   writeItems(projectsKey, [defaultProject]);
+  persist(persistSupabaseProjects([defaultProject]));
   return [defaultProject];
 }
 
 export function saveProjects(projects: ProjectItem[]) {
   writeItems(projectsKey, projects);
+  persist(persistSupabaseProjects(projects));
   emitArchiveEvent(archiveEvents.projects);
 }
 
@@ -248,6 +363,7 @@ export function cloneProject(projectId: string) {
   writeItems(projectsKey, [...projects, clonedProject]);
   writeItems(pinboardsKey, [...pinboards, ...clonedBoards]);
   writeItems(boardItemsKey, [...boardItems, ...clonedItems]);
+  persist(saveSupabaseArchive(readArchiveSnapshot()));
   emitArchiveEvent(archiveEvents.projects);
   emitArchiveEvent(archiveEvents.boardItems);
   return clonedProject;
@@ -263,12 +379,7 @@ export function deleteProject(projectId: string) {
   );
   const fallbackProject =
     remainingProjects[0] ??
-    ({
-      id: "default-project",
-      user_id: LOCAL_USER_ID,
-      title: "Current Project",
-      created_at: new Date().toISOString(),
-    } satisfies ProjectItem);
+    createDefaultProject();
 
   const nextProjects = remainingProjects.length
     ? remainingProjects
@@ -287,6 +398,13 @@ export function deleteProject(projectId: string) {
       (item) => item.project_id !== projectId,
     ),
   );
+  persist(
+    deleteSupabaseProject(projectId).then(() =>
+      remainingProjects.length
+        ? undefined
+        : persistSupabaseProjects([fallbackProject]),
+    ),
+  );
 
   if (readActiveProjectId() === projectId) {
     saveActiveProjectId(fallbackProject.id);
@@ -300,7 +418,16 @@ export function deleteProject(projectId: string) {
 export function readActiveProjectId() {
   if (typeof window === "undefined") return "default-project";
 
-  return window.localStorage.getItem(activeProjectKey) || readProjects()[0].id;
+  const projects = readProjects();
+  const storedProjectId = window.localStorage.getItem(activeProjectKey);
+  const activeProject = projects.find((project) => project.id === storedProjectId);
+  const activeProjectId = activeProject?.id ?? projects[0].id;
+
+  if (storedProjectId !== activeProjectId) {
+    window.localStorage.setItem(activeProjectKey, activeProjectId);
+  }
+
+  return activeProjectId;
 }
 
 export function saveActiveProjectId(projectId: string) {
@@ -313,6 +440,8 @@ export function readIndicators() {
 
 export function saveIndicators(indicators: IndicatorItem[]) {
   writeItems(indicatorsKey, indicators);
+  persist(replaceSupabaseIndicators(indicators));
+  emitArchiveEvent("accumulate:indicators");
 }
 
 export function readPinboards(projectId = readActiveProjectId()) {
@@ -334,7 +463,15 @@ export function readPinboards(projectId = readActiveProjectId()) {
   };
 
   writeItems(pinboardsKey, [...pinboards, defaultBoard]);
+  persist(persistSupabaseBoards([defaultBoard]));
   return [defaultBoard];
+}
+
+export function readAllPinboards() {
+  return readItems<PinboardItem>(pinboardsKey).map((board) => ({
+    ...board,
+    height: board.height ?? 680,
+  }));
 }
 
 export function savePinboards(pinboards: PinboardItem[]) {
@@ -344,6 +481,7 @@ export function savePinboards(pinboards: PinboardItem[]) {
     ...allPinboards.filter((board) => !projectIds.has(board.project_id)),
     ...pinboards,
   ]);
+  persist(persistSupabaseBoards(pinboards));
 }
 
 export function createPinboard(projectId = readActiveProjectId()) {
@@ -408,6 +546,7 @@ export function saveBoardItems(items: BoardItem[]) {
     ...allItems.filter((item) => !ids.has(item.id)),
     ...items,
   ]);
+  persist(persistSupabaseBoardItems(items));
   emitArchiveEvent(archiveEvents.boardItems);
 }
 
@@ -427,7 +566,9 @@ export function updatePinboard(boardId: string, patch: Partial<PinboardItem>) {
   );
 
   writeItems(pinboardsKey, nextBoards);
-  return nextBoards.find((board) => board.id === boardId) ?? null;
+  const updatedBoard = nextBoards.find((board) => board.id === boardId) ?? null;
+  if (updatedBoard) persist(persistSupabaseBoards([updatedBoard]));
+  return updatedBoard;
 }
 
 export function deletePinboard(boardId: string) {
@@ -440,20 +581,21 @@ export function deletePinboard(boardId: string) {
   );
   if (projectBoards.length <= 1) return null;
 
-  writeItems(
-    pinboardsKey,
-    boards
-      .filter((current) => current.id !== boardId)
-      .map((current) =>
-        current.project_id === board.project_id && current.order > board.order
-          ? { ...current, order: current.order - 1 }
-          : current,
-      ),
-  );
+  const nextBoards = boards
+    .filter((current) => current.id !== boardId)
+    .map((current) =>
+      current.project_id === board.project_id && current.order > board.order
+        ? { ...current, order: current.order - 1 }
+        : current,
+    );
+
+  writeItems(pinboardsKey, nextBoards);
   writeItems(
     boardItemsKey,
     readItems<BoardItem>(boardItemsKey).filter((item) => item.board_id !== boardId),
   );
+  persist(deleteSupabaseBoard(boardId));
+  persist(persistSupabaseBoards(nextBoards.filter((item) => item.project_id === board.project_id)));
 
   return board;
 }
@@ -493,6 +635,7 @@ export function addSourceToProject(
   };
 
   writeItems(boardItemsKey, [...items, item]);
+  persist(persistSupabaseBoardItems([item]));
   emitArchiveEvent(archiveEvents.boardItems);
   return item;
 }
@@ -534,6 +677,7 @@ export function addBoardElement(
   };
 
   writeItems(boardItemsKey, [...items, item]);
+  persist(persistSupabaseBoardItems([item]));
   emitArchiveEvent(archiveEvents.boardItems);
   return item;
 }
@@ -566,8 +710,10 @@ export function updateBoardItem(itemId: string, patch: Partial<BoardItem>) {
   );
 
   writeItems(boardItemsKey, nextItems);
+  const updatedItem = nextItems.find((item) => item.id === itemId) ?? null;
+  if (updatedItem) persist(persistSupabaseBoardItems([updatedItem]));
   emitArchiveEvent(archiveEvents.boardItems);
-  return nextItems.find((item) => item.id === itemId) ?? null;
+  return updatedItem;
 }
 
 export function cloneBoardItem(itemId: string) {
@@ -590,6 +736,7 @@ export function cloneBoardItem(itemId: string) {
   };
 
   writeItems(boardItemsKey, [...items, clonedItem]);
+  persist(persistSupabaseBoardItems([clonedItem]));
   emitArchiveEvent(archiveEvents.boardItems);
   return clonedItem;
 }
@@ -601,6 +748,7 @@ export function deleteBoardItem(itemId: string) {
       .map(normalizeBoardItem)
       .filter((item) => item.id !== itemId),
   );
+  persist(deleteSupabaseBoardItem(itemId));
   emitArchiveEvent(archiveEvents.boardItems);
 }
 

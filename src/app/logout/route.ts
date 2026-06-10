@@ -9,5 +9,5 @@ export async function GET() {
     // Auth is disabled for the temporary local archive mode.
   }
 
-  redirect("/app");
+  redirect("/login");
 }

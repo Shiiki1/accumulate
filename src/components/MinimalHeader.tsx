@@ -10,12 +10,17 @@ import {
   commandActions,
   consumeQueuedCommandAction,
 } from "@/lib/commandActions";
+import {
+  archiveEvents,
+  readActiveProjectId,
+  readProjects,
+} from "@/lib/localArchive";
 
 const navItems = [
   { href: "/app", label: "Projects" },
   { href: "/app/moodboard", label: "Moodboard" },
   { href: "/app/media", label: "Media" },
-  { href: "/app/tools", label: "Tools" },
+  { href: "/app/tools", label: "Resources" },
   { href: "/app/ideas", label: "Ideas & References" },
   { href: "/app/3d", label: "3D" },
 ];
@@ -23,6 +28,7 @@ const navItems = [
 export function MinimalHeader() {
   const pathname = usePathname();
   const [isIndicatorDialogOpen, setIsIndicatorDialogOpen] = useState(false);
+  const [activeProjectTitle, setActiveProjectTitle] = useState("");
 
   useEffect(() => {
     function openIndicatorDialog() {
@@ -41,9 +47,28 @@ export function MinimalHeader() {
       );
   }, []);
 
+  useEffect(() => {
+    function syncProjectTitle() {
+      const activeId = readActiveProjectId();
+      setActiveProjectTitle(
+        readProjects().find((project) => project.id === activeId)?.title ?? "",
+      );
+    }
+
+    const frame = window.requestAnimationFrame(syncProjectTitle);
+    window.addEventListener(archiveEvents.projects, syncProjectTitle);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener(archiveEvents.projects, syncProjectTitle);
+    };
+  }, []);
+
+  const isWorkspaceRoute = pathname.startsWith("/app/") && pathname !== "/app";
+
   return (
     <>
-      <header className="sticky top-0 z-30 bg-[var(--surface-glass)] px-4 py-4 backdrop-blur-xl sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-30 border-b border-[color-mix(in_srgb,var(--line)_72%,transparent)] bg-[var(--surface-glass)] px-4 py-4 backdrop-blur-xl sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/app"
@@ -51,6 +76,15 @@ export function MinimalHeader() {
           >
             Accumulate
           </Link>
+          {isWorkspaceRoute && activeProjectTitle ? (
+            <div className="hidden min-w-0 flex-1 text-xs text-[var(--muted)] lg:block">
+              <span className="uppercase tracking-[0.22em]">Project</span>
+              <span className="mx-2 text-[var(--line)]">/</span>
+              <span className="text-[var(--foreground)]">
+                {activeProjectTitle}
+              </span>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <nav className="flex gap-1">
               {navItems.map((item) => {
@@ -65,7 +99,7 @@ export function MinimalHeader() {
                     href={item.href}
                     className={`shrink-0 border px-3.5 py-2 text-xs transition duration-300 ${
                       isActive
-                        ? "border-[var(--foreground)] text-[var(--foreground)]"
+                        ? "border-[color-mix(in_srgb,var(--foreground)_42%,var(--line))] text-[var(--foreground)]"
                         : "border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
                     }`}
                   >
@@ -77,7 +111,7 @@ export function MinimalHeader() {
             <button
               type="button"
               onClick={() => setIsIndicatorDialogOpen(true)}
-              className="ml-1 inline-flex h-9 shrink-0 items-center gap-2 border border-[var(--line)] px-3 text-xs text-[var(--muted)] transition hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+              className="archive-button ml-1 inline-flex h-9 shrink-0 items-center gap-2 px-3 text-xs"
             >
               <Plus size={14} />
               Indicator

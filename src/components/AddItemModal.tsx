@@ -14,12 +14,12 @@ import {
 import { itemCategories, type ItemCategory } from "@/lib/categories";
 import { getImageFromClipboard, pastedImageTitle } from "@/lib/clipboard";
 import {
-  fileToDataUrl,
   LOCAL_USER_ID,
   saveMediaItem,
 } from "@/lib/localArchive";
 import { IndicatorMultiSelect } from "@/components/ArchiveActions";
 import { modalOverlay, modalPanel } from "@/lib/motion";
+import { uploadMediaFile } from "@/lib/storage";
 import type { DisplayItem, ImageType } from "@/lib/types";
 
 type AddItemModalProps = {
@@ -141,9 +141,9 @@ export function AddItemModal({
       let imageType: ImageType = "remote";
 
       if (mode === "upload" && file) {
-        const dataUrl = await fileToDataUrl(file);
-        imageUrl = dataUrl;
-        displayUrl = dataUrl;
+        const uploaded = await uploadMediaFile(file);
+        imageUrl = uploaded.publicUrl;
+        displayUrl = uploaded.publicUrl;
         imageType = "upload";
       }
 

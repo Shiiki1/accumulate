@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 export type AuthState = {
   message: string | null;
@@ -19,6 +20,13 @@ export async function login(
   _state: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  if (!hasSupabaseEnv()) {
+    return {
+      message:
+        "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    };
+  }
+
   const supabase = await createClient();
   const { email, password } = credentials(formData);
 
@@ -39,6 +47,13 @@ export async function signup(
   _state: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  if (!hasSupabaseEnv()) {
+    return {
+      message:
+        "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    };
+  }
+
   const supabase = await createClient();
   const { email, password } = credentials(formData);
 
