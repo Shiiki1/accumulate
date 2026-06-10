@@ -285,8 +285,9 @@ export function IdeasCollection() {
               const isOpen = openIds.includes(item.id);
               const selectedIndicators = selectedIndicatorsFor(indicators, item);
               const isReference = (item.entry_type ?? "idea") === "reference";
+              const relationships = getSourceRelationships("idea", item.id);
               const relationshipLine = relationshipStatsLine(
-                getSourceRelationships("idea", item.id),
+                relationships,
                 isReference
                   ? { includeRelatedMedia: true, includeRelatedIdeas: true }
                   : { includeRelatedReferences: true },
@@ -297,15 +298,28 @@ export function IdeasCollection() {
                   variants={gridItemReveal}
                   key={item.id}
                   className={`archive-card relative ${
-                    isReference ? "p-6" : "p-5"
+                    isReference
+                      ? "bg-[color-mix(in_srgb,var(--surface)_72%,transparent)] p-6"
+                      : "bg-[color-mix(in_srgb,var(--surface)_50%,transparent)] p-5"
                   }`}
                 >
                   <IndicatorMarks indicators={selectedIndicators} />
                   <div className="flex items-start justify-between gap-4">
                     <div className={isReference ? "pr-2" : ""}>
-                      <p className="archive-label mb-4 text-[10px]">
-                        {isReference ? "Reference" : "Idea"}
-                      </p>
+                      <div
+                        className={`mb-4 flex items-center justify-between gap-4 ${
+                          isReference ? "border-b border-[var(--line)] pb-3" : ""
+                        }`}
+                      >
+                        <p className="archive-label text-[10px]">
+                          {isReference ? "Reference / Source" : "Idea / Thought"}
+                        </p>
+                        {relationships.moodboardPlacements.length ? (
+                          <p className="archive-meta shrink-0 text-[10px]">
+                            Appears on {relationships.moodboardPlacements.length}
+                          </p>
+                        ) : null}
+                      </div>
                       <h2
                         className={
                           isReference
@@ -318,8 +332,8 @@ export function IdeasCollection() {
                       <p
                         className={`whitespace-pre-wrap text-sm text-[var(--muted)] ${
                           isReference
-                            ? "mt-5 border-t border-[var(--line)] pt-4 leading-6"
-                            : "mt-4 max-w-[62ch] leading-7"
+                            ? "mt-5 leading-6"
+                            : "mt-4 max-w-[62ch] font-serif-accent text-lg leading-7"
                         } ${
                           isOpen ? "" : "line-clamp-3"
                         }`}
@@ -390,6 +404,9 @@ export function IdeasCollection() {
                   </div>
                   {relationshipLine ? (
                     <p className="archive-meta mt-4 border-t border-[var(--line)] pt-3">
+                      <span className="mr-1 text-[var(--foreground)]">
+                        {isReference ? "Evidence" : "Memory"}
+                      </span>
                       {relationshipLine}
                     </p>
                   ) : null}

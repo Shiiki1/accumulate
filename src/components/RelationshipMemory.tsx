@@ -29,9 +29,10 @@ function RelatedRow({
   if (!items.length) return null;
 
   return (
-    <p>
-      {label}: {previewList(items, "")}
-    </p>
+    <div className="border-t border-[var(--line)] pt-2">
+      <p className="archive-label text-[10px]">{label}</p>
+      <p className="mt-1">{previewList(items, "")}</p>
+    </div>
   );
 }
 
@@ -52,7 +53,7 @@ export function RelationshipMemory({
     return (
       <div className="archive-panel px-3 py-3 text-sm leading-6 text-[var(--muted)]">
         <p className="archive-label">Memory</p>
-        <p className="mt-2">Not used in a project yet.</p>
+        <p className="mt-2">Not placed in a project yet.</p>
       </div>
     );
   }
@@ -64,34 +65,40 @@ export function RelationshipMemory({
       }`}
     >
       <p className="archive-label">Memory</p>
-      <p>
-        Used in projects:{" "}
-        {previewList(relationships.usedProjects, "Not used in a project yet.")}
-      </p>
-      <p>
-        Added to moodboards:{" "}
-        {previewList(
-          relationships.moodboardPlacements.map((placement) => ({
-            title: `${placement.boardTitle} / ${placement.projectTitle}`,
-          })),
-          "Not added yet.",
-        )}
-      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <p className="archive-label text-[10px]">Used In</p>
+          <p className="mt-1">
+            {previewList(relationships.usedProjects, "Not used in a project yet.")}
+          </p>
+        </div>
+        <div>
+          <p className="archive-label text-[10px]">Appears On</p>
+          <p className="mt-1">
+            {previewList(
+              relationships.moodboardPlacements.map((placement) => ({
+                title: `${placement.boardTitle} / ${placement.projectTitle}`,
+              })),
+              "Not added to a moodboard yet.",
+            )}
+          </p>
+        </div>
+      </div>
       {related.includes("references") ? (
         <RelatedRow
-          label="Related references"
+          label="Related References"
           items={relationships.relatedReferences}
         />
       ) : null}
       {related.includes("media") ? (
-        <RelatedRow label="Related media" items={relationships.relatedMedia} />
+        <RelatedRow label="Appears With Media" items={relationships.relatedMedia} />
       ) : null}
       {related.includes("ideas") ? (
-        <RelatedRow label="Related ideas" items={relationships.relatedIdeas} />
+        <RelatedRow label="Related Ideas" items={relationships.relatedIdeas} />
       ) : null}
       {related.includes("resources") ? (
         <RelatedRow
-          label="Related resources"
+          label="Related Resources"
           items={relationships.relatedResources}
         />
       ) : null}

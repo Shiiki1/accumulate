@@ -223,6 +223,50 @@ select {
   border-color: color-mix(in srgb, var(--board-card-text) 24%, var(--board-card-border));
 }
 
+.board-object-media {
+  background: color-mix(in srgb, var(--board-bg) 72%, transparent);
+}
+
+.board-object-resource {
+  border-color: color-mix(in srgb, var(--board-line-strong) 42%, var(--board-card-border));
+  background: color-mix(in srgb, var(--board-card-bg) 92%, var(--board-bg));
+}
+
+.board-object-idea {
+  border-color: color-mix(in srgb, var(--board-card-border) 58%, transparent);
+  background: color-mix(in srgb, var(--board-card-bg) 76%, var(--board-bg));
+}
+
+.board-object-reference {
+  border-color: color-mix(in srgb, var(--board-line-strong) 68%, var(--board-card-border));
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--board-line-strong) 10%, transparent) 0 1px,
+      transparent 1px 100%
+    ),
+    color-mix(in srgb, var(--board-card-bg) 88%, var(--board-bg));
+  background-size: 100% 28px, auto;
+}
+
+.board-object-text {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--board-card-bg) 62%, transparent);
+}
+
+.board-transform-wrapper {
+  cursor: grab;
+  touch-action: none;
+}
+
+.board-transform-wrapper-panning {
+  cursor: grabbing;
+}
+
+.board-transform-content {
+  color: var(--board-card-text);
+}
+
 .image-skeleton {
   position: relative;
   overflow: hidden;

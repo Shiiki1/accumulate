@@ -68,8 +68,62 @@ function readItems<T>(key: string): T[] {
   }
 }
 
+function isDataImageUrl(value?: string | null) {
+  return typeof value === "string" && value.startsWith("data:image");
+}
+
+function isQuotaExceededError(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" ||
+      error.name === "NS_ERROR_DOM_QUOTA_REACHED")
+  );
+}
+
+function sanitizeMediaForCache(items: DisplayItem[]) {
+  return items
+    .map((item) => {
+      const imageUrl = isDataImageUrl(item.image_url) ? "" : item.image_url;
+      const displayUrl = isDataImageUrl(item.display_url) ? "" : item.display_url;
+      const fallbackUrl = imageUrl || displayUrl;
+
+      if (!fallbackUrl) return null;
+
+      return {
+        ...item,
+        image_url: fallbackUrl,
+        display_url: displayUrl || fallbackUrl,
+      };
+    })
+    .filter((item): item is DisplayItem => Boolean(item));
+}
+
 function writeItems<T>(key: string, items: T[]) {
-  window.localStorage.setItem(key, JSON.stringify(items));
+  const cacheItems =
+    key === mediaKey
+      ? (sanitizeMediaForCache(items as DisplayItem[]) as T[])
+      : items;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(cacheItems));
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      if (key === mediaKey) {
+        try {
+          window.localStorage.removeItem(key);
+          window.localStorage.setItem(key, JSON.stringify(cacheItems));
+        } catch (retryError) {
+          ignorePersistenceError(retryError);
+        }
+        return;
+      }
+
+      ignorePersistenceError(error);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function ignorePersistenceError(error: unknown) {
@@ -148,7 +202,7 @@ function readArchiveSnapshot(): ArchiveSnapshot {
 }
 
 function replaceArchiveSnapshot(snapshot: ArchiveSnapshot) {
-  writeItems(mediaKey, snapshot.media);
+  writeItems(mediaKey, sanitizeMediaForCache(snapshot.media));
   writeItems(websitesKey, snapshot.resources);
   writeItems(ideasKey, snapshot.ideasReferences);
   writeItems(projectsKey, snapshot.projects);
@@ -179,7 +233,7 @@ export async function bootstrapArchivePersistence() {
 }
 
 export function readMediaItems() {
-  return readItems<DisplayItem>(mediaKey).map((item) => ({
+  return sanitizeMediaForCache(readItems<DisplayItem>(mediaKey)).map((item) => ({
     ...item,
     indicator_ids: normalizeIndicatorIds(item),
   }));

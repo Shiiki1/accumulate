@@ -328,95 +328,105 @@ export function ToolsCollection() {
             className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
             {filteredItems.map((item) => {
+              const relationships = getSourceRelationships("website", item.id);
               const relationshipLine = relationshipStatsLine(
-                getSourceRelationships("website", item.id),
+                relationships,
                 { includeRelatedReferences: true },
               );
               const category = primaryCategory(item.categories);
+              const contextText = item.used_for || item.saved_reason;
 
               return (
-              <motion.article
-                variants={gridItemReveal}
-                key={item.id}
-                className="archive-card relative p-4"
-              >
-                <div className="border border-[var(--line)] bg-[color-mix(in_srgb,var(--surface-soft)_72%,transparent)] p-4">
-                  <p className="archive-label text-[10px]">{category}</p>
-                  <p className="mt-5 truncate text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-                    {item.domain ?? displayHost(item.source_url)}
-                  </p>
-                </div>
-                <div className="mt-4 flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-lg font-medium leading-snug">{item.name}</h2>
-                    {item.description ? (
-                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
-                        {item.description}
-                      </p>
-                    ) : null}
+                <motion.article
+                  variants={gridItemReveal}
+                  key={item.id}
+                  className="archive-card relative p-4"
+                >
+                  <div className="border border-[var(--line)] bg-[color-mix(in_srgb,var(--surface-soft)_72%,transparent)] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="archive-label text-[10px]">{category}</p>
+                      {relationships.usedProjects.length ? (
+                        <p className="archive-meta shrink-0 text-[10px]">
+                          {relationships.usedProjects.length === 1
+                            ? `Used in ${relationships.usedProjects[0].title}`
+                            : `${relationships.usedProjects.length} projects`}
+                        </p>
+                      ) : null}
+                    </div>
+                    <p className="mt-5 truncate text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                      {item.domain ?? displayHost(item.source_url)}
+                    </p>
                   </div>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(item.id);
-                        setDraftTool(null);
-                        setDraftCategories(normalizeToolCategories(item.categories));
-                        setIsAdding(true);
-                      }}
-                      className="archive-icon-button size-8"
-                      aria-label="Edit resource"
+                  <div className="mt-4 flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg font-medium leading-snug">{item.name}</h2>
+                      {item.description ? (
+                        <p className="mt-2 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
+                          {item.description}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(item.id);
+                          setDraftTool(null);
+                          setDraftCategories(normalizeToolCategories(item.categories));
+                          setIsAdding(true);
+                        }}
+                        className="archive-icon-button size-8"
+                        aria-label="Edit resource"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          persist(items.filter((current) => current.id !== item.id))
+                        }
+                        className="archive-icon-button size-8"
+                        aria-label="Delete resource"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <ToolCategoryChips categories={item.categories} />
+                  {contextText ? (
+                    <div className="mt-4 border-t border-[var(--line)] pt-3">
+                      <p className="archive-label text-[10px]">
+                        {item.used_for ? "Used For" : "Saved Because"}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
+                        {contextText}
+                      </p>
+                      {item.used_for && item.saved_reason ? (
+                        <p className="archive-meta mt-2 line-clamp-1">
+                          Saved because: {item.saved_reason}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {relationshipLine ? (
+                    <p className="archive-meta mt-3 border-t border-[var(--line)] pt-3">
+                      <span className="mr-1 text-[var(--foreground)]">Context</span>
+                      {relationshipLine}
+                    </p>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <AddToProjectButton sourceType="website" sourceId={item.id} />
+                    <a
+                      href={item.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-[var(--foreground)]"
                     >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        persist(items.filter((current) => current.id !== item.id))
-                      }
-                      className="archive-icon-button size-8"
-                      aria-label="Delete resource"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                      Open
+                      <ExternalLink size={14} />
+                    </a>
                   </div>
-                </div>
-                <ToolCategoryChips categories={item.categories} />
-                {item.saved_reason || item.used_for ? (
-                  <div className="mt-4 space-y-2 border-t border-[var(--line)] pt-3">
-                    {item.saved_reason ? (
-                      <p className="archive-meta line-clamp-2">
-                        <span className="mr-1 text-[var(--foreground)]">Why</span>
-                        {item.saved_reason}
-                      </p>
-                    ) : null}
-                    {item.used_for ? (
-                      <p className="archive-meta line-clamp-2">
-                        <span className="mr-1 text-[var(--foreground)]">Use</span>
-                        {item.used_for}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {relationshipLine ? (
-                  <p className="archive-meta mt-3 border-t border-[var(--line)] pt-3">
-                    <span className="mr-1 text-[var(--foreground)]">Memory</span>
-                    {relationshipLine}
-                  </p>
-                ) : null}
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                  <AddToProjectButton sourceType="website" sourceId={item.id} />
-                  <a
-                    href={item.source_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 text-sm text-[var(--muted)] transition hover:text-[var(--foreground)]"
-                  >
-                    Open
-                    <ExternalLink size={14} />
-                  </a>
-                </div>
-              </motion.article>
+                </motion.article>
               );
             })}
           </motion.section>

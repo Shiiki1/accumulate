@@ -252,27 +252,31 @@ export function relationshipStatsLine(
     includeRelatedIdeas?: boolean;
   },
 ) {
+  const projectPart =
+    relationships.usedProjects.length === 1
+      ? `Used in ${relationships.usedProjects[0].title}`
+      : relationships.usedProjects.length
+        ? `Used in ${relationships.usedProjects.length} projects`
+        : null;
+  const moodboardPart =
+    relationships.moodboardPlacements.length === 1
+      ? "Appears on 1 moodboard"
+      : relationships.moodboardPlacements.length
+        ? `Appears on ${relationships.moodboardPlacements.length} moodboards`
+        : null;
   const parts = [
-    relationships.usedProjects.length
-      ? `${relationships.usedProjects.length} project${
-          relationships.usedProjects.length === 1 ? "" : "s"
-        }`
-      : null,
-    relationships.moodboardPlacements.length
-      ? `${relationships.moodboardPlacements.length} moodboard${
-          relationships.moodboardPlacements.length === 1 ? "" : "s"
-        }`
-      : null,
+    projectPart,
+    moodboardPart,
     options?.includeRelatedReferences && relationships.relatedReferences.length
-      ? `${relationships.relatedReferences.length} related reference${
+      ? `Referenced by ${relationships.relatedReferences.length} reference${
           relationships.relatedReferences.length === 1 ? "" : "s"
         }`
       : null,
     options?.includeRelatedMedia && relationships.relatedMedia.length
-      ? `${relationships.relatedMedia.length} related media`
+      ? `Appears with ${relationships.relatedMedia.length} media`
       : null,
     options?.includeRelatedIdeas && relationships.relatedIdeas.length
-      ? `${relationships.relatedIdeas.length} related idea${
+      ? `Referenced by ${relationships.relatedIdeas.length} idea${
           relationships.relatedIdeas.length === 1 ? "" : "s"
         }`
       : null,

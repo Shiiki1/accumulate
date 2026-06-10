@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   FormEvent,
   MouseEvent as ReactMouseEvent,
-  WheelEvent as ReactWheelEvent,
   useEffect,
   useMemo,
   useRef,
@@ -13,6 +12,11 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Rnd } from "react-rnd";
+import {
+  TransformComponent,
+  TransformWrapper,
+  type ReactZoomPanPinchContentRef,
+} from "react-zoom-pan-pinch";
 import {
   ChevronDown,
   Copy,
@@ -55,7 +59,6 @@ import {
   readWebsiteItems,
   saveActiveProjectId,
   saveProjects,
-  updatePinboard,
   updateBoardItem,
 } from "@/lib/localArchive";
 import { modalOverlay, modalPanel, pageReveal } from "@/lib/motion";
@@ -88,7 +91,6 @@ type BoardSectionProps = {
   onAddBoard: () => void;
   onDeleteBoard: (boardId: string) => void;
   onPatchItem: (itemId: string, patch: Partial<BoardItem>) => void;
-  onResizeBoard: (boardId: string, height: number) => void;
   snapMode: SnapMode;
   onSnapModeChange: (mode: SnapMode) => void;
   onMoveStop: (
@@ -109,9 +111,23 @@ type ContextMenuState = {
 type SnapMode = "free" | "soft";
 
 const snapModeKey = "accumulate.snapMode";
+const boardWindowHeightsKey = "accumulate.boardWindowHeights";
 const snapGrid = 24;
 const zoomLevels = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
-const fitBoardZoom = 0.75;
+const fitBoardZoom = 0.5;
+const workspaceWidth = 6000;
+const workspaceHeight = 3600;
+const defaultBoardWindowHeight = 720;
+const minViewportHeight = 560;
+const maxViewportHeight = 1040;
+const zoomExclusions = [
+  "board-pan-exclude",
+  "button",
+  "a",
+  "input",
+  "textarea",
+  "select",
+];
 
 function snapValue(value: number, mode: SnapMode) {
   return mode === "soft" ? Math.round(value / snapGrid) * snapGrid : value;
@@ -121,18 +137,55 @@ function zoomLabel(zoom: number) {
   return `${Math.round(zoom * 100)}%`;
 }
 
-function stepZoom(currentZoom: number, direction: 1 | -1) {
-  const currentIndex = zoomLevels.reduce((bestIndex, level, index) => {
-    return Math.abs(level - currentZoom) < Math.abs(zoomLevels[bestIndex] - currentZoom)
-      ? index
-      : bestIndex;
-  }, 0);
-  const nextIndex = Math.min(
-    zoomLevels.length - 1,
-    Math.max(0, currentIndex + direction),
+function clampBoardWindowHeight(height: number) {
+  return Math.min(
+    maxViewportHeight,
+    Math.max(minViewportHeight, Math.round(height)),
   );
+}
 
-  return zoomLevels[nextIndex];
+function readBoardWindowHeight(boardId: string) {
+  if (typeof window === "undefined") return defaultBoardWindowHeight;
+
+  try {
+    const saved = JSON.parse(
+      window.localStorage.getItem(boardWindowHeightsKey) ?? "{}",
+    ) as Record<string, number>;
+    return clampBoardWindowHeight(saved[boardId] ?? defaultBoardWindowHeight);
+  } catch {
+    return defaultBoardWindowHeight;
+  }
+}
+
+function saveBoardWindowHeight(boardId: string, height: number) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const saved = JSON.parse(
+      window.localStorage.getItem(boardWindowHeightsKey) ?? "{}",
+    ) as Record<string, number>;
+    window.localStorage.setItem(
+      boardWindowHeightsKey,
+      JSON.stringify({
+        ...saved,
+        [boardId]: clampBoardWindowHeight(height),
+      }),
+    );
+  } catch {
+    // View-window size is a local preference. Ignore storage failures.
+  }
+}
+
+function fixedGridStyle() {
+  return {
+    backgroundImage:
+      "linear-gradient(color-mix(in srgb, var(--board-grid) 24%, transparent) 1px, transparent 1px), " +
+      "linear-gradient(90deg, color-mix(in srgb, var(--board-grid) 24%, transparent) 1px, transparent 1px), " +
+      "linear-gradient(color-mix(in srgb, var(--board-line-strong) 18%, transparent) 1px, transparent 1px), " +
+      "linear-gradient(90deg, color-mix(in srgb, var(--board-line-strong) 18%, transparent) 1px, transparent 1px)",
+    backgroundSize: "48px 48px, 48px 48px, 192px 192px, 192px 192px",
+    backgroundPosition: "0 0, 0 0, 0 0, 0 0",
+  };
 }
 
 function sourceTitle(source: SourceItem) {
@@ -181,6 +234,23 @@ function sourceLabel(item: ResolvedBoardItem) {
   if (item.source_type === "website") return "resource";
 
   return item.source_type;
+}
+
+function boardObjectClass(
+  item: ResolvedBoardItem,
+  isLibraryReference: boolean,
+) {
+  if (item.source_type === "separator") return "border-transparent bg-transparent";
+  if (item.source_type === "media") return "board-object board-object-media";
+  if (item.source_type === "website") return "board-object board-object-resource";
+  if (item.source_type === "reference") return "board-object board-object-reference";
+  if (item.source_type === "text") {
+    return item.text_box_enabled ? "board-object board-object-text" : "";
+  }
+
+  return isLibraryReference
+    ? "board-object board-object-reference"
+    : "board-object board-object-idea";
 }
 
 function BoardCard({
@@ -269,11 +339,10 @@ function BoardCard({
         })
       }
       onContextMenu={(event: ReactMouseEvent) => onContextMenu(event, item)}
-      className={`group cursor-grab transition-shadow duration-200 active:cursor-grabbing active:shadow-[var(--shadow-soft)] ${
-        item.source_type === "text" && !item.text_box_enabled
-          ? ""
-          : "board-object"
-      } ${isSeparator ? "border-transparent bg-transparent" : "overflow-hidden"}`}
+      data-board-object
+      className={`board-pan-exclude group cursor-grab transition-shadow duration-200 active:cursor-grabbing active:shadow-[var(--shadow-soft)] ${
+        boardObjectClass(item, isLibraryReference)
+      } ${isSeparator ? "" : "overflow-hidden"}`}
     >
       {item.indicators.length ? (
         <div className="absolute inset-y-0 left-0 z-10 flex w-1.5 flex-col overflow-hidden">
@@ -294,10 +363,13 @@ function BoardCard({
           style={{ backgroundColor: item.separator_color ?? "var(--board-line-strong)" }}
         />
       ) : item.source_type === "reference" ? (
-        <div className="flex h-full flex-col border border-[color-mix(in_srgb,var(--board-line-strong)_72%,transparent)] bg-[color-mix(in_srgb,var(--board-card-bg)_82%,transparent)] p-4">
-          <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--board-muted)]">
-            Reference
-          </p>
+        <div className="flex h-full flex-col p-4">
+          <div className="flex items-center justify-between border-b border-[var(--board-card-border)] pb-2">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-[var(--board-muted)]">
+              Reference
+            </p>
+            <span className="text-[10px] text-[var(--board-muted)]">Index</span>
+          </div>
           <input
             data-board-control
             value={item.reference_title ?? item.content ?? ""}
@@ -308,7 +380,7 @@ function BoardCard({
               })
             }
             placeholder="Reference"
-            className="mt-3 w-full bg-transparent font-serif-accent text-2xl leading-none text-[var(--board-card-text)] outline-none placeholder:text-[var(--board-muted)]"
+            className="mt-4 w-full bg-transparent font-serif-accent text-2xl leading-none text-[var(--board-card-text)] outline-none placeholder:text-[var(--board-muted)]"
           />
           <textarea
             data-board-control
@@ -324,7 +396,7 @@ function BoardCard({
         <div className="relative h-full w-full">
           <button
             type="button"
-              className="board-drag-handle absolute left-2 top-2 z-20 h-7 w-12 cursor-grab border border-[var(--board-card-border)] bg-[var(--board-card-bg)] text-[10px] uppercase tracking-[0.18em] text-[var(--board-muted)] opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+            className="board-drag-handle absolute left-2 top-2 z-20 h-7 w-12 cursor-grab border border-[var(--board-card-border)] bg-[var(--board-card-bg)] text-[10px] uppercase tracking-[0.18em] text-[var(--board-muted)] opacity-0 transition group-hover:opacity-100 focus:opacity-100"
             aria-label="Drag text block"
           >
             Move
@@ -397,7 +469,7 @@ function BoardCard({
         </div>
       ) : item.source && "source_url" in item.source ? (
         <div className="flex h-full flex-col overflow-hidden p-4">
-          <div>
+          <div className="flex items-start justify-between gap-3 border-b border-[var(--board-card-border)] pb-3">
             <a
               data-board-control
               href={item.source.source_url}
@@ -408,29 +480,54 @@ function BoardCard({
               <span className="truncate">{hostLabel(item.source.source_url)}</span>
               <ExternalLink size={10} />
             </a>
-            <h3 className="mt-3 line-clamp-2 text-sm font-medium">
+            {item.source.categories?.[0] ? (
+              <span className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-[var(--board-muted)]">
+                {item.source.categories[0]}
+              </span>
+            ) : null}
+          </div>
+          <div className="pt-3">
+            <h3 className="line-clamp-2 text-sm font-medium">
               {sourceTitle(item.source)}
             </h3>
-            <p className="mt-3 line-clamp-3 border-t border-[var(--board-card-border)] pt-3 text-xs leading-5 text-[var(--board-muted)]">
+            <p className="mt-3 line-clamp-3 text-xs leading-5 text-[var(--board-muted)]">
               {sourceText(item.source)}
             </p>
+            {item.source.used_for || item.source.saved_reason ? (
+              <p className="mt-3 line-clamp-2 border-t border-[var(--board-card-border)] pt-3 text-[11px] leading-5 text-[var(--board-muted)]">
+                {item.source.used_for || item.source.saved_reason}
+              </p>
+            ) : null}
           </div>
         </div>
       ) : item.source ? (
-        <div className={`h-full overflow-hidden ${isLibraryReference ? "p-6" : "p-5"}`}>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--board-muted)]">
-            {isLibraryReference ? "reference" : "idea"}
-          </p>
+        <div className={`h-full overflow-hidden ${isLibraryReference ? "p-5" : "p-5"}`}>
+          <div
+            className={`flex items-center justify-between ${
+              isLibraryReference ? "border-b border-[var(--board-card-border)] pb-2" : ""
+            }`}
+          >
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--board-muted)]">
+              {isLibraryReference ? "reference" : "idea"}
+            </p>
+            {isLibraryReference ? (
+              <span className="text-[10px] text-[var(--board-muted)]">Archive</span>
+            ) : null}
+          </div>
           <h3
-            className={`mt-3 line-clamp-2 font-serif-accent ${
-              isLibraryReference ? "text-3xl leading-none" : "text-2xl leading-tight"
+            className={`line-clamp-2 font-serif-accent ${
+              isLibraryReference
+                ? "mt-4 text-3xl leading-none"
+                : "mt-4 text-2xl leading-tight"
             }`}
           >
             {sourceTitle(item.source)}
           </h3>
           <p
             className={`mt-4 line-clamp-4 whitespace-pre-wrap leading-6 text-[var(--board-muted)] ${
-              isLibraryReference ? "border-t border-[var(--board-card-border)] pt-4 text-sm" : "font-serif-accent text-lg"
+              isLibraryReference
+                ? "text-sm"
+                : "font-serif-accent text-lg"
             }`}
           >
             {sourceText(item.source)}
@@ -452,7 +549,6 @@ function BoardSection({
   onAddBoard,
   onDeleteBoard,
   onPatchItem,
-  onResizeBoard,
   snapMode,
   onSnapModeChange,
   onMoveStop,
@@ -460,15 +556,36 @@ function BoardSection({
   onZoomChange,
 }: BoardSectionProps) {
   const sectionRef = useRef<HTMLElement | null>(null);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
+  const [boardWindowHeight, setBoardWindowHeight] = useState(() =>
+    readBoardWindowHeight(board.id),
+  );
+  const gridStyle = fixedGridStyle();
+
+  function syncGridPosition(positionX: number, positionY: number) {
+    const minorX = `${positionX % 48}px`;
+    const minorY = `${positionY % 48}px`;
+    const majorX = `${positionX % 192}px`;
+    const majorY = `${positionY % 192}px`;
+
+    if (!gridRef.current) return;
+    gridRef.current.style.backgroundPosition = `${minorX} ${minorY}, ${minorX} ${minorY}, ${majorX} ${majorY}, ${majorX} ${majorY}`;
+  }
 
   function beginBoardResize(event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     const startY = event.clientY;
-    const startHeight = board.height ?? 680;
+    const startHeight = boardWindowHeight;
 
     function handleMove(moveEvent: MouseEvent) {
-      onResizeBoard(board.id, startHeight + moveEvent.clientY - startY);
+      const nextHeight = clampBoardWindowHeight(
+        startHeight + moveEvent.clientY - startY,
+      );
+      setBoardWindowHeight(nextHeight);
+      saveBoardWindowHeight(board.id, nextHeight);
     }
 
     function handleUp() {
@@ -480,41 +597,46 @@ function BoardSection({
     window.addEventListener("mouseup", handleUp, { once: true });
   }
 
-  function handleBoardWheel(event: ReactWheelEvent<HTMLDivElement>) {
-    if (!event.ctrlKey) return;
+  function setBoardZoom(nextZoom: number) {
+    const ref = transformRef.current;
+    if (!ref) {
+      onZoomChange(nextZoom);
+      return;
+    }
 
-    event.preventDefault();
-    onZoomChange(stepZoom(zoom, event.deltaY > 0 ? -1 : 1));
-  }
-
-  function centerViewport() {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const viewport = viewportRef.current;
-        if (!viewport) return;
-
-        viewport.scrollLeft = Math.max(
-          0,
-          (viewport.scrollWidth - viewport.clientWidth) / 2,
-        );
-        viewport.scrollTop = Math.max(
-          0,
-          (viewport.scrollHeight - viewport.clientHeight) / 2,
-        );
-      });
-    });
+    ref.setTransform(
+      ref.state.positionX,
+      ref.state.positionY,
+      nextZoom,
+      160,
+      "easeOut",
+    );
+    onZoomChange(nextZoom);
   }
 
   function fitBoard() {
-    onZoomChange(fitBoardZoom);
     sectionRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-    centerViewport();
+    transformRef.current?.setTransform(0, 0, fitBoardZoom, 180, "easeOut");
+    onZoomChange(fitBoardZoom);
   }
 
   function resetZoom() {
+    transformRef.current?.setTransform(0, 0, 1, 180, "easeOut");
     onZoomChange(1);
-    centerViewport();
   }
+
+  useEffect(() => {
+    const ref = transformRef.current;
+    if (!ref || Math.abs(ref.state.scale - zoom) < 0.001) return;
+
+    ref.setTransform(
+      ref.state.positionX,
+      ref.state.positionY,
+      zoom,
+      0,
+      "easeOut",
+    );
+  }, [zoom]);
 
   return (
     <section
@@ -528,36 +650,63 @@ function BoardSection({
           {board.title}
         </p>
         <div className="flex flex-wrap justify-end gap-2">
-          <div className="mr-1 flex items-center border border-[color-mix(in_srgb,var(--line)_82%,transparent)]">
-            <span className="px-2.5 text-xs text-[var(--muted)]">
+          <div className="relative mr-1 flex items-center border border-[color-mix(in_srgb,var(--line)_82%,transparent)]">
+            <button
+              type="button"
+              onClick={() => setIsZoomMenuOpen((value) => !value)}
+              className="inline-flex h-8 min-w-16 items-center justify-between gap-2 px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+              aria-expanded={isZoomMenuOpen}
+              aria-label="Moodboard zoom options"
+            >
               {zoomLabel(zoom)}
-            </span>
-            <select
-              value={zoom}
-              onChange={(event) => onZoomChange(Number(event.target.value))}
-              className="h-8 border-l border-[var(--line)] bg-transparent px-2 text-xs text-[var(--muted)] outline-none transition hover:text-[var(--foreground)]"
-              aria-label="Moodboard zoom level"
-            >
-              {zoomLevels.map((level) => (
-                <option key={level} value={level}>
-                  {zoomLabel(level)}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={fitBoard}
-              className="h-8 border-l border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
-            >
-              Fit
+              <ChevronDown size={12} />
             </button>
-            <button
-              type="button"
-              onClick={resetZoom}
-              className="h-8 border-l border-[var(--line)] px-2.5 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
-            >
-              100
-            </button>
+            {isZoomMenuOpen ? (
+              <div
+                data-board-control
+                className="absolute right-0 top-9 z-40 min-w-32 border border-[var(--line-strong)] bg-[var(--background)] p-1 shadow-[var(--shadow-soft)]"
+              >
+                {zoomLevels.map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => {
+                      setBoardZoom(level);
+                      setIsZoomMenuOpen(false);
+                    }}
+                    className={`block h-8 w-full px-2.5 text-left text-xs transition ${
+                      Math.abs(zoom - level) < 0.01
+                        ? "bg-[var(--surface-soft)] text-[var(--foreground)]"
+                        : "text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    {zoomLabel(level)}
+                  </button>
+                ))}
+                <div className="mt-1 border-t border-[var(--line)] pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fitBoard();
+                      setIsZoomMenuOpen(false);
+                    }}
+                    className="block h-8 w-full px-2.5 text-left text-xs text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                  >
+                    Fit board
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetZoom();
+                      setIsZoomMenuOpen(false);
+                    }}
+                    className="block h-8 w-full px-2.5 text-left text-xs text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                  >
+                    Reset 100%
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="mr-1 flex border border-[color-mix(in_srgb,var(--line)_82%,transparent)]">
             {(["free", "soft"] as const).map((mode) => (
@@ -619,69 +768,97 @@ function BoardSection({
       </div>
 
       <div
-        ref={viewportRef}
-        className="relative overflow-auto bg-[var(--board-bg)]"
-        onWheel={handleBoardWheel}
+        className="relative overflow-hidden bg-[var(--board-bg)]"
         style={{
-          height: Math.max(360, Math.round((board.height ?? 680) * zoom)),
+          height: boardWindowHeight,
           boxShadow:
-            "inset 0 0 0 1px color-mix(in srgb, var(--board-line-strong) 38%, transparent)",
+            "inset 0 0 0 1px color-mix(in srgb, var(--board-line-strong) 22%, transparent)",
         }}
       >
         <div
-          className="relative"
-          style={{
-            width: `${zoom * 100}%`,
-            height: Math.round((board.height ?? 680) * zoom),
+          ref={gridRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0"
+          style={gridStyle}
+        />
+        <TransformWrapper
+          ref={transformRef}
+          initialScale={zoom}
+          initialPositionX={0}
+          initialPositionY={0}
+          minScale={0.5}
+          maxScale={2}
+          limitToBounds
+          disablePadding
+          smooth
+          wheel={{
+            activationKeys: ["Control", "Meta"],
+            step: 0.18,
+            excluded: zoomExclusions,
+          }}
+          panning={{
+            allowLeftClickPan: true,
+            allowMiddleClickPan: true,
+            excluded: zoomExclusions,
+          }}
+          pinch={{
+            allowPanning: true,
+            excluded: zoomExclusions,
+          }}
+          doubleClick={{ disabled: true }}
+          velocityAnimation={{ disabled: true }}
+          onPanningStart={() => setIsPanning(true)}
+          onPanningStop={() => setIsPanning(false)}
+          onTransform={(_, state) => {
+            syncGridPosition(state.positionX, state.positionY);
+            const nextZoom = Number(state.scale.toFixed(3));
+            if (Math.abs(nextZoom - zoom) > 0.001) {
+              onZoomChange(nextZoom);
+            }
           }}
         >
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.1]"
-            style={{
-              backgroundImage:
-                "linear-gradient(var(--board-grid) 1px, transparent 1px), linear-gradient(90deg, var(--board-grid) 1px, transparent 1px)",
-              backgroundSize: `${48 * zoom}px ${48 * zoom}px`,
-            }}
-          />
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.2]"
-            style={{
-              backgroundImage:
-                "linear-gradient(var(--board-line-strong) 1px, transparent 1px), linear-gradient(90deg, var(--board-line-strong) 1px, transparent 1px)",
-              backgroundSize: `${192 * zoom}px ${192 * zoom}px`,
-            }}
-          />
-          <div
-            data-board-surface
-            data-board-id={board.id}
-            className="absolute left-0 top-0 origin-top-left transition-transform duration-200"
-            style={{
-              width: `${100 / zoom}%`,
-              height: board.height ?? 680,
-              transform: `scale(${zoom})`,
+          <TransformComponent
+            wrapperClass={`board-transform-wrapper ${
+              isPanning ? "board-transform-wrapper-panning" : ""
+            }`}
+            contentClass="board-transform-content"
+            wrapperStyle={{ width: "100%", height: "100%" }}
+            contentStyle={{
+              width: workspaceWidth,
+              height: workspaceHeight,
+              position: "relative",
+              backgroundColor: "transparent",
+              boxShadow:
+                "inset 0 0 0 1px color-mix(in srgb, var(--board-line-strong) 28%, transparent)",
             }}
           >
-            {items.map((item) => (
-              <BoardCard
-                key={item.id}
-                item={item}
-                onPatchItem={onPatchItem}
-                onMoveStop={onMoveStop}
-                snapMode={snapMode}
-                zoom={zoom}
-                onContextMenu={(event, menuItem) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  window.dispatchEvent(
-                    new CustomEvent<ContextMenuState>("accumulate:board-menu", {
-                      detail: { item: menuItem, x: event.clientX, y: event.clientY },
-                    }),
-                  );
-                }}
-              />
-            ))}
-          </div>
-        </div>
+            <div
+              data-board-surface
+              data-board-id={board.id}
+              className="absolute inset-0"
+            >
+              {items.map((item) => (
+                <BoardCard
+                  key={item.id}
+                  item={item}
+                  onPatchItem={onPatchItem}
+                  onMoveStop={onMoveStop}
+                  snapMode={snapMode}
+                  zoom={zoom}
+                  onContextMenu={(event, menuItem) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    window.dispatchEvent(
+                      new CustomEvent<ContextMenuState>("accumulate:board-menu", {
+                        detail: { item: menuItem, x: event.clientX, y: event.clientY },
+                      }),
+                    );
+                  }}
+                />
+              ))}
+            </div>
+          </TransformComponent>
+        </TransformWrapper>
         {!items.length ? (
           <div className="pointer-events-none absolute inset-0 grid place-items-center px-6 text-center">
             <div>
@@ -698,9 +875,9 @@ function BoardSection({
           type="button"
           onMouseDown={beginBoardResize}
           className="absolute bottom-2 left-1/2 z-20 flex h-6 w-28 -translate-x-1/2 cursor-ns-resize items-center justify-center border border-[var(--board-border)] bg-[var(--board-card-bg)] text-[10px] uppercase tracking-[0.18em] text-[var(--board-muted)] opacity-80 transition hover:text-[var(--board-card-text)] hover:opacity-100"
-          aria-label="Resize board height"
+          aria-label="Resize moodboard view window"
         >
-          Resize
+          Window
         </button>
       </div>
     </section>
@@ -940,15 +1117,6 @@ export function MoodboardHome() {
     });
   }
 
-  function resizeBoard(boardId: string, height: number) {
-    const updated = updatePinboard(boardId, { height });
-    if (!updated) return;
-
-    setPinboards((current) =>
-      current.map((board) => (board.id === boardId ? updated : board)),
-    );
-  }
-
   function changeSnapMode(mode: SnapMode) {
     setSnapMode(mode);
     window.localStorage.setItem(snapModeKey, mode);
@@ -1098,7 +1266,6 @@ export function MoodboardHome() {
             onAddBoard={addBoard}
             onDeleteBoard={removeBoard}
             onPatchItem={patchBoardItem}
-            onResizeBoard={resizeBoard}
             snapMode={snapMode}
             onSnapModeChange={changeSnapMode}
             onMoveStop={moveBoardItem}
@@ -1261,56 +1428,87 @@ export function MoodboardHome() {
                       />
                     </div>
                   ) : null}
-                  {"display_url" in infoItem.source && infoItem.source.notes ? (
-                    <p className="archive-panel whitespace-pre-wrap p-3">
-                      Description: {infoItem.source.notes}
-                    </p>
-                  ) : null}
-                  {"description" in infoItem.source &&
-                  infoItem.source.description ? (
-                    <p className="archive-panel p-3">Description: {infoItem.source.description}</p>
-                  ) : null}
-                  {"body" in infoItem.source ? (
-                    <p className="archive-panel whitespace-pre-wrap p-3">
-                      Content: {infoItem.source.body || "No content added."}
-                    </p>
-                  ) : null}
-                  {"category" in infoItem.source ? (
-                    <p>Category: {infoItem.source.category}</p>
-                  ) : null}
-                  {"tags" in infoItem.source && infoItem.source.tags.length ? (
-                    <p>Tags: {infoItem.source.tags.join(", ")}</p>
-                  ) : null}
-                  {"source_url" in infoItem.source &&
-                  infoItem.source.source_url ? (
-                    <p>URL: {infoItem.source.source_url}</p>
-                  ) : null}
-                  {"domain" in infoItem.source && infoItem.source.domain ? (
-                    <p>Domain: {infoItem.source.domain}</p>
-                  ) : null}
-                  {"categories" in infoItem.source &&
-                  infoItem.source.categories?.length ? (
-                    <p>Categories: {infoItem.source.categories.join(", ")}</p>
-                  ) : null}
-                  {"saved_reason" in infoItem.source &&
-                  infoItem.source.saved_reason ? (
-                    <p>Saved because: {infoItem.source.saved_reason}</p>
-                  ) : null}
-                  {"used_for" in infoItem.source && infoItem.source.used_for ? (
-                    <p>Used for: {infoItem.source.used_for}</p>
-                  ) : null}
-                  {infoItem.indicators.length ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {"description" in infoItem.source &&
+                    infoItem.source.description ? (
+                      <div className="archive-panel p-3">
+                        <p className="archive-label text-[10px]">What It Is</p>
+                        <p className="mt-2">{infoItem.source.description}</p>
+                      </div>
+                    ) : null}
+                    {"used_for" in infoItem.source && infoItem.source.used_for ? (
+                      <div className="archive-panel p-3">
+                        <p className="archive-label text-[10px]">Used For</p>
+                        <p className="mt-2">{infoItem.source.used_for}</p>
+                      </div>
+                    ) : null}
+                    {"saved_reason" in infoItem.source &&
+                    infoItem.source.saved_reason ? (
+                      <div className="archive-panel p-3">
+                        <p className="archive-label text-[10px]">Saved Because</p>
+                        <p className="mt-2">{infoItem.source.saved_reason}</p>
+                      </div>
+                    ) : null}
+                    {"body" in infoItem.source ? (
+                      <div className="archive-panel p-3 sm:col-span-2">
+                        <p className="archive-label text-[10px]">
+                          {(infoItem.source.entry_type ?? "idea") === "reference"
+                            ? "Reference Context"
+                            : "Idea Text"}
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap">
+                          {infoItem.source.body || "No content added."}
+                        </p>
+                      </div>
+                    ) : null}
+                    {"display_url" in infoItem.source && infoItem.source.notes ? (
+                      <div className="archive-panel p-3 sm:col-span-2">
+                        <p className="archive-label text-[10px]">Notes</p>
+                        <p className="mt-2 whitespace-pre-wrap">
+                          {infoItem.source.notes}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="archive-panel grid gap-2 p-3 sm:grid-cols-2">
+                    {"domain" in infoItem.source && infoItem.source.domain ? (
+                      <p>
+                        <span className="archive-label mr-2 text-[10px]">Domain</span>
+                        {infoItem.source.domain}
+                      </p>
+                    ) : null}
+                    {"category" in infoItem.source ? (
+                      <p>
+                        <span className="archive-label mr-2 text-[10px]">Category</span>
+                        {infoItem.source.category}
+                      </p>
+                    ) : null}
+                    {"categories" in infoItem.source &&
+                    infoItem.source.categories?.length ? (
+                      <p className="sm:col-span-2">
+                        <span className="archive-label mr-2 text-[10px]">Categories</span>
+                        {infoItem.source.categories.join(", ")}
+                      </p>
+                    ) : null}
+                    {"tags" in infoItem.source && infoItem.source.tags.length ? (
+                      <p className="sm:col-span-2">
+                        <span className="archive-label mr-2 text-[10px]">Tags</span>
+                        {infoItem.source.tags.join(", ")}
+                      </p>
+                    ) : null}
+                    {infoItem.indicators.length ? (
+                      <p className="sm:col-span-2">
+                        <span className="archive-label mr-2 text-[10px]">Indicators</span>
+                        {infoItem.indicators
+                          .map((indicator) => indicator.name)
+                          .join(", ")}
+                      </p>
+                    ) : null}
                     <p>
-                      Indicators:{" "}
-                      {infoItem.indicators
-                        .map((indicator) => indicator.name)
-                        .join(", ")}
+                      <span className="archive-label mr-2 text-[10px]">Added</span>
+                      {new Date(infoItem.source.created_at).toLocaleDateString()}
                     </p>
-                  ) : null}
-                  <p>
-                    Date added:{" "}
-                    {new Date(infoItem.source.created_at).toLocaleDateString()}
-                  </p>
+                  </div>
                   {infoRelationships ? (
                     <RelationshipMemory relationships={infoRelationships} />
                   ) : null}

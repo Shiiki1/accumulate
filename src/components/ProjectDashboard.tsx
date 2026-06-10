@@ -383,7 +383,7 @@ export function ProjectDashboard() {
                 onClick={() => openProject(project.id)}
                 className="mt-8 block w-full text-left"
               >
-                <div className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
                   {[
                     ["Media", stats.media],
                     ["Ideas", stats.ideas],
