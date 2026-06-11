@@ -18,19 +18,36 @@ import {
 } from "@/lib/commandActions";
 import { archiveEvents, readMediaItems, saveMediaItems } from "@/lib/localArchive";
 import { pageReveal, softSpring } from "@/lib/motion";
+import { getSourceRelationships } from "@/lib/relationships";
 import type { DisplayItem } from "@/lib/types";
 
 type AppShellProps = {
   initialItems: DisplayItem[];
 };
 
+type SortOrder = "newest" | "oldest" | "title";
+type UsageFilter = "all" | "used" | "unused";
+type ViewMode = "cards" | "compact";
+
+function filterButtonClass(isActive: boolean) {
+  return `h-8 px-2.5 text-[11px] transition sm:h-9 sm:px-3 sm:text-xs ${
+    isActive
+      ? "border border-[var(--foreground)] text-[var(--foreground)]"
+      : "archive-button"
+  }`;
+}
+
 export function AppShell({ initialItems }: AppShellProps) {
   const [items, setItems] = useState(initialItems);
   const [activeIndicatorIds, setActiveIndicatorIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [usageFilter, setUsageFilter] = useState<UsageFilter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [isAdding, setIsAdding] = useState(false);
   const [pastedFile, setPastedFile] = useState<File | null>(null);
   const indicators = useIndicators();
+  const isCompactView = viewMode === "compact";
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -41,15 +58,29 @@ export function AppShell({ initialItems }: AppShellProps) {
         selectedIndicatorsFor(indicators, item).some((indicator) =>
           activeIndicatorIds.includes(indicator.id),
         );
+      const relationship = getSourceRelationships("media", item.id);
+      const usageMatch =
+        usageFilter === "all" ||
+        (usageFilter === "used" && relationship.moodboardPlacements.length > 0) ||
+        (usageFilter === "unused" && relationship.moodboardPlacements.length === 0);
       const searchMatch =
         !normalizedSearch ||
         item.title.toLowerCase().includes(normalizedSearch) ||
         item.category.toLowerCase().includes(normalizedSearch) ||
         item.tags.some((tag) => tag.toLowerCase().includes(normalizedSearch));
 
-      return indicatorMatch && searchMatch;
+      return indicatorMatch && usageMatch && searchMatch;
+    }).sort((a, b) => {
+      if (sortOrder === "title") {
+        return a.title.localeCompare(b.title);
+      }
+
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+
+      return sortOrder === "oldest" ? aTime - bTime : bTime - aTime;
     });
-  }, [activeIndicatorIds, indicators, items, search]);
+  }, [activeIndicatorIds, indicators, items, search, sortOrder, usageFilter]);
 
   useEffect(() => {
     function loadItems() {
@@ -108,11 +139,67 @@ export function AppShell({ initialItems }: AppShellProps) {
               while a project takes shape.
             </p>
           </div>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <IndicatorFilter
-              selectedIds={activeIndicatorIds}
-              onChange={setActiveIndicatorIds}
-            />
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-1 flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="archive-label mr-1 text-[10px]">Sort</p>
+                {([
+                  ["newest", "Newest"],
+                  ["oldest", "Oldest"],
+                  ["title", "Title A-Z"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSortOrder(value)}
+                    className={filterButtonClass(sortOrder === value)}
+                    aria-pressed={sortOrder === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <p className="archive-label ml-5 mr-1 text-[10px]">Usage</p>
+                {([
+                  ["all", "All"],
+                  ["used", "Used"],
+                  ["unused", "Unused"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setUsageFilter(value)}
+                    className={filterButtonClass(usageFilter === value)}
+                    aria-pressed={usageFilter === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <p className="archive-label ml-5 mr-1 text-[10px]">View</p>
+                {([
+                  ["cards", "Cards"],
+                  ["compact", "Compact"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setViewMode(value)}
+                    className={filterButtonClass(viewMode === value)}
+                    aria-pressed={viewMode === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {indicators.length ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="archive-label mr-1 text-[10px]">Indicators</p>
+                  <IndicatorFilter
+                    selectedIds={activeIndicatorIds}
+                    onChange={setActiveIndicatorIds}
+                  />
+                </div>
+              ) : null}
+            </div>
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -132,6 +219,7 @@ export function AppShell({ initialItems }: AppShellProps) {
           <MasonryGrid
             items={filteredItems}
             onIndicatorChange={handleIndicatorChange}
+            compact={isCompactView}
           />
         )}
       </main>

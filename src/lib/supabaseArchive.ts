@@ -11,6 +11,8 @@ import type {
   DisplayItem,
   IdeaItem,
   IndicatorItem,
+  PageCanvasItem,
+  PageItem,
   PinboardItem,
   ProjectItem,
   WebsiteItem,
@@ -72,6 +74,8 @@ const emptySnapshot: ArchiveSnapshot = {
   boardItems: [],
   indicators: [],
   collections: [],
+  pages: [],
+  pageItems: [],
 };
 
 function now() {
@@ -95,7 +99,9 @@ function hasLocalData(snapshot: ArchiveSnapshot) {
     snapshot.boards.length > 0 ||
     snapshot.boardItems.length > 0 ||
     snapshot.indicators.length > 0 ||
-    snapshot.collections.length > 0
+    snapshot.collections.length > 0 ||
+    snapshot.pages.length > 0 ||
+    snapshot.pageItems.length > 0
   );
 }
 
@@ -218,6 +224,29 @@ function collectionRow(item: CollectionItem, userId: string) {
   );
 }
 
+function pageRow(item: PageItem, userId: string) {
+  return owned(
+    {
+      ...item,
+      format: item.format ?? "a4-portrait",
+      project_id: item.project_id ?? null,
+    },
+    userId,
+  );
+}
+
+function pageItemRow(item: PageCanvasItem, userId: string) {
+  return owned(
+    {
+      ...item,
+      source_id: item.source_id ?? null,
+      content: item.content ?? null,
+      rotation: item.rotation ?? 0,
+    },
+    userId,
+  );
+}
+
 async function upsertRows<T>(
   supabase: SupabaseClient,
   table: string,
@@ -329,6 +358,8 @@ export async function loadSupabaseArchive(): Promise<SupabaseArchiveResult | nul
     boardItems,
     indicators,
     collections,
+    pages,
+    pageItems,
   ] = await Promise.all([
     selectRows<DisplayItem>(supabase, "media", "created_at", false),
     selectRows<WebsiteItem>(supabase, "resources", "created_at", false),
@@ -340,6 +371,10 @@ export async function loadSupabaseArchive(): Promise<SupabaseArchiveResult | nul
     selectRows<CollectionItem>(supabase, "collections", "created_at", false).catch(
       () => [],
     ),
+    selectRows<PageItem>(supabase, "pages", "created_at", false).catch(
+      () => [],
+    ),
+    selectRows<PageCanvasItem>(supabase, "page_items").catch(() => []),
   ]);
 
   return {
@@ -373,6 +408,16 @@ export async function loadSupabaseArchive(): Promise<SupabaseArchiveResult | nul
         ...collection,
         source_ids: collection.source_ids ?? [],
       })),
+      pages: pages.map((page) => ({
+        ...page,
+        format: page.format ?? "a4-portrait",
+      })),
+      pageItems: pageItems.map((item) => ({
+        ...item,
+        source_id: item.source_id ?? null,
+        content: item.content ?? null,
+        rotation: item.rotation ?? 0,
+      })),
     },
   };
 }
@@ -397,6 +442,11 @@ export async function saveSupabaseArchive(snapshot: ArchiveSnapshot) {
       "collections",
       snapshot.collections.map((item) => collectionRow(item, userId)),
     ).catch(() => undefined),
+    upsertRows(
+      supabase,
+      "pages",
+      snapshot.pages.map((item) => pageRow(item, userId)),
+    ).catch(() => undefined),
   ]);
   await upsertRows(supabase, "boards", snapshot.boards.map((item) => boardRow(item, userId)));
   await upsertRows(
@@ -404,6 +454,11 @@ export async function saveSupabaseArchive(snapshot: ArchiveSnapshot) {
     "board_items",
     snapshot.boardItems.map((item) => boardItemRow(item, userId)),
   );
+  await upsertRows(
+    supabase,
+    "page_items",
+    snapshot.pageItems.map((item) => pageItemRow(item, userId)),
+  ).catch(() => undefined);
 
   return userId;
 }
@@ -430,6 +485,17 @@ export async function bootstrapSupabaseArchive(
   if (!loaded?.snapshot.projects.length) {
     await saveSupabaseArchive(createDefaultSnapshot(userId));
     loaded = await loadSupabaseArchive();
+  }
+
+  if (loaded && localSnapshot.pages.length && !loaded.snapshot.pages.length) {
+    loaded = {
+      ...loaded,
+      snapshot: {
+        ...loaded.snapshot,
+        pages: localSnapshot.pages,
+        pageItems: localSnapshot.pageItems,
+      },
+    };
   }
 
   if (loaded) {
@@ -529,6 +595,26 @@ export async function persistSupabaseCollections(items: CollectionItem[]) {
   ).catch(() => undefined);
 }
 
+export async function persistSupabasePages(items: PageItem[]) {
+  const auth = await getAuthenticatedClient();
+  if (!auth) return;
+  await upsertRows(
+    auth.supabase,
+    "pages",
+    items.map((item) => pageRow(item, auth.userId)),
+  ).catch(() => undefined);
+}
+
+export async function persistSupabasePageItems(items: PageCanvasItem[]) {
+  const auth = await getAuthenticatedClient();
+  if (!auth) return;
+  await upsertRows(
+    auth.supabase,
+    "page_items",
+    items.map((item) => pageItemRow(item, auth.userId)),
+  ).catch(() => undefined);
+}
+
 export async function replaceSupabaseCollections(items: CollectionItem[]) {
   const auth = await getAuthenticatedClient();
   if (!auth) return;
@@ -561,6 +647,18 @@ export async function deleteSupabaseBoardItem(id: string) {
   const auth = await getAuthenticatedClient();
   if (!auth) return;
   await deleteRow(auth.supabase, "board_items", id);
+}
+
+export async function deleteSupabasePage(id: string) {
+  const auth = await getAuthenticatedClient();
+  if (!auth) return;
+  await deleteRow(auth.supabase, "pages", id);
+}
+
+export async function deleteSupabasePageItem(id: string) {
+  const auth = await getAuthenticatedClient();
+  if (!auth) return;
+  await deleteRow(auth.supabase, "page_items", id);
 }
 
 export { cacheOwnerKey, emptySnapshot };

@@ -137,7 +137,7 @@ export function IndicatorFilter({ selectedIds, onChange }: IndicatorFilterProps)
             key={indicator.id}
             type="button"
             onClick={() => toggleIndicator(indicator.id)}
-            className="inline-flex h-9 items-center gap-2 border px-3 text-xs transition hover:border-[var(--foreground)]"
+            className="inline-flex h-8 items-center gap-1.5 border px-2.5 text-[11px] transition hover:border-[var(--foreground)]"
             style={indicatorButtonStyle(indicator.color, isSelected)}
             aria-pressed={isSelected}
           >

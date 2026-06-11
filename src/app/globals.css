@@ -97,6 +97,16 @@ select {
   color: var(--foreground);
 }
 
+select.archive-field,
+.archive-field option {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.archive-field option:checked {
+  background: color-mix(in srgb, var(--foreground) 14%, var(--background));
+}
+
 .no-card-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -228,30 +238,94 @@ select {
 }
 
 .board-object-resource {
-  border-color: color-mix(in srgb, var(--board-line-strong) 42%, var(--board-card-border));
-  background: color-mix(in srgb, var(--board-card-bg) 92%, var(--board-bg));
+  border-color: color-mix(in srgb, var(--board-line-strong) 58%, var(--board-card-border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--board-line-strong) 8%, transparent),
+      transparent 42px
+    ),
+    color-mix(in srgb, var(--board-card-bg) 94%, var(--board-bg));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--board-card-text) 7%, transparent),
+    inset 0 36px 0 color-mix(in srgb, var(--board-line-strong) 5%, transparent);
+}
+
+.board-object-resource h3 {
+  color: var(--board-card-text);
+}
+
+.board-object-resource p:first-child {
+  letter-spacing: 0.18em;
 }
 
 .board-object-idea {
-  border-color: color-mix(in srgb, var(--board-card-border) 58%, transparent);
-  background: color-mix(in srgb, var(--board-card-bg) 76%, var(--board-bg));
+  border-color: color-mix(in srgb, var(--board-card-border) 42%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, rgb(255 244 220) 5%, transparent),
+      transparent 52%
+    ),
+    color-mix(in srgb, var(--board-card-bg) 70%, var(--board-bg));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025);
+}
+
+.board-object-idea .archive-label {
+  letter-spacing: 0.16em;
+  opacity: 0.62;
+}
+
+.board-object-idea h3 {
+  color: color-mix(in srgb, var(--board-card-text) 74%, var(--board-muted));
+}
+
+.board-object-idea p {
+  color: color-mix(in srgb, var(--board-card-text) 82%, var(--board-muted));
 }
 
 .board-object-reference {
-  border-color: color-mix(in srgb, var(--board-line-strong) 68%, var(--board-card-border));
+  border-color: color-mix(in srgb, var(--board-line-strong) 54%, var(--board-card-border));
   background:
     linear-gradient(
       to bottom,
-      color-mix(in srgb, var(--board-line-strong) 10%, transparent) 0 1px,
+      color-mix(in srgb, var(--board-line-strong) 13%, transparent) 0 1px,
       transparent 1px 100%
     ),
-    color-mix(in srgb, var(--board-card-bg) 88%, var(--board-bg));
-  background-size: 100% 28px, auto;
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--board-line-strong) 9%, transparent),
+      transparent 36px
+    ),
+    color-mix(in srgb, var(--board-card-bg) 91%, var(--board-bg));
+  background-size: 100% 30px, auto, auto;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--board-card-text) 8%, transparent),
+    inset 0 30px 0 color-mix(in srgb, var(--board-line-strong) 4%, transparent);
+}
+
+.board-object-reference .archive-label {
+  letter-spacing: 0.24em;
+  opacity: 0.84;
+}
+
+.board-object-reference h3 {
+  color: var(--board-card-text);
+}
+
+.board-object-reference p {
+  color: color-mix(in srgb, var(--board-muted) 86%, var(--board-card-text));
 }
 
 .board-object-text {
   border-style: dashed;
   background: color-mix(in srgb, var(--board-card-bg) 62%, transparent);
+}
+
+.board-object-color {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .board-transform-wrapper {

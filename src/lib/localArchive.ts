@@ -6,6 +6,8 @@ import type {
   DisplayItem,
   IdeaItem,
   IndicatorItem,
+  PageCanvasItem,
+  PageItem,
   PinboardItem,
   ProjectItem,
   WebsiteItem,
@@ -17,7 +19,11 @@ import {
   deleteSupabaseBoard,
   deleteSupabaseBoardItem,
   deleteSupabaseMedia,
+  deleteSupabasePage,
+  deleteSupabasePageItem,
   deleteSupabaseProject,
+  persistSupabasePageItems,
+  persistSupabasePages,
   persistSupabaseBoardItems,
   persistSupabaseBoards,
   persistSupabaseMedia,
@@ -37,6 +43,8 @@ const websitesKey = "accumulate.websites";
 const ideasKey = "accumulate.ideas";
 const projectsKey = "accumulate.projects";
 const pinboardsKey = "accumulate.pinboards";
+const pagesKey = "accumulate.pages";
+const pageItemsKey = "accumulate.pageItems";
 const collectionsKey = "accumulate.collections";
 const activeProjectKey = "accumulate.activeProject";
 const indicatorsKey = "accumulate.indicators";
@@ -49,6 +57,8 @@ export const archiveEvents = {
   boardItems: "accumulate:board-items",
   projects: "accumulate:projects",
   collections: "accumulate:collections",
+  pages: "accumulate:pages",
+  pageItems: "accumulate:page-items",
 } as const;
 
 function emitArchiveEvent(eventName: string) {
@@ -98,10 +108,33 @@ function sanitizeMediaForCache(items: DisplayItem[]) {
     .filter((item): item is DisplayItem => Boolean(item));
 }
 
+function normalizePage(page: PageItem): PageItem {
+  return {
+    ...page,
+    format: page.format ?? "a4-portrait",
+    project_id: page.project_id ?? null,
+  };
+}
+
+function dedupePages(pages: PageItem[]) {
+  const seen = new Set<string>();
+  const deduped: PageItem[] = [];
+
+  for (const page of pages.map(normalizePage)) {
+    if (seen.has(page.id)) continue;
+    seen.add(page.id);
+    deduped.push(page);
+  }
+
+  return deduped;
+}
+
 function writeItems<T>(key: string, items: T[]) {
   const cacheItems =
     key === mediaKey
       ? (sanitizeMediaForCache(items as DisplayItem[]) as T[])
+      : key === pagesKey
+        ? (dedupePages(items as PageItem[]) as T[])
       : items;
 
   try {
@@ -166,6 +199,8 @@ function createDefaultSnapshot(userId = LOCAL_USER_ID): ArchiveSnapshot {
     boardItems: [],
     indicators: [],
     collections: [],
+    pages: [],
+    pageItems: [],
   };
 }
 
@@ -198,6 +233,8 @@ function readArchiveSnapshot(): ArchiveSnapshot {
     boardItems: readItems<BoardItem>(boardItemsKey).map(normalizeBoardItem),
     indicators: readIndicators(),
     collections: readCollections(),
+    pages: [],
+    pageItems: [],
   };
 }
 
@@ -355,6 +392,175 @@ export function saveCollections(collections: CollectionItem[]) {
   );
   persist(replaceSupabaseCollections(collections));
   emitArchiveEvent(archiveEvents.collections);
+}
+
+export function readPages(projectId?: string) {
+  const rawPages = readItems<PageItem>(pagesKey);
+  const pages = dedupePages(rawPages);
+
+  if (pages.length !== rawPages.length) {
+    writeItems(pagesKey, pages);
+  }
+
+  return projectId
+    ? pages.filter((page) => page.project_id === projectId)
+    : pages;
+}
+
+export function findPage(id: string) {
+  return readPages().find((page) => page.id === id) ?? null;
+}
+
+export function savePages(pages: PageItem[]) {
+  const nextPages = dedupePages(pages);
+
+  writeItems(
+    pagesKey,
+    nextPages,
+  );
+  persist(persistSupabasePages(nextPages));
+  emitArchiveEvent(archiveEvents.pages);
+}
+
+export function createPage(projectId = readActiveProjectId()) {
+  const now = new Date().toISOString();
+  const page: PageItem = {
+    id: crypto.randomUUID(),
+    user_id: LOCAL_USER_ID,
+    project_id: projectId,
+    title: "Untitled Page",
+    format: "a4-portrait",
+    created_at: now,
+    updated_at: now,
+  };
+
+  savePages([page, ...readPages()]);
+  return page;
+}
+
+export function updatePage(pageId: string, patch: Partial<PageItem>) {
+  const pages = readPages();
+  const nextPages = pages.map((page) =>
+    page.id === pageId
+      ? {
+          ...page,
+          ...patch,
+          format: patch.format ?? page.format ?? "a4-portrait",
+          updated_at: new Date().toISOString(),
+        }
+      : page,
+  );
+  const updatedPage = nextPages.find((page) => page.id === pageId) ?? null;
+
+  writeItems(pagesKey, nextPages);
+  if (updatedPage) persist(persistSupabasePages([updatedPage]));
+  emitArchiveEvent(archiveEvents.pages);
+  return updatedPage;
+}
+
+export function deletePage(pageId: string) {
+  const page = findPage(pageId);
+  if (!page) return null;
+  const pageBoardItems = readItems<BoardItem>(boardItemsKey)
+    .map(normalizeBoardItem)
+    .filter((item) => item.source_type === "page" && item.source_id === pageId);
+
+  writeItems(
+    pagesKey,
+    readPages().filter((current) => current.id !== pageId),
+  );
+  writeItems(
+    pageItemsKey,
+    readPageItems().filter((item) => item.page_id !== pageId),
+  );
+  writeItems(
+    boardItemsKey,
+    readItems<BoardItem>(boardItemsKey)
+      .map(normalizeBoardItem)
+      .filter((item) => !(item.source_type === "page" && item.source_id === pageId)),
+  );
+  persist(deleteSupabasePage(pageId));
+  pageBoardItems.forEach((item) => persist(deleteSupabaseBoardItem(item.id)));
+  emitArchiveEvent(archiveEvents.pages);
+  emitArchiveEvent(archiveEvents.pageItems);
+  emitArchiveEvent(archiveEvents.boardItems);
+  return page;
+}
+
+function normalizePageItem(item: PageCanvasItem): PageCanvasItem {
+  return {
+    ...item,
+    source_id: item.source_id ?? null,
+    content: item.content ?? null,
+    x: Math.max(0, Math.round(item.x)),
+    y: Math.max(0, Math.round(item.y)),
+    width: Math.max(40, Math.round(item.width)),
+    height: Math.max(32, Math.round(item.height)),
+    rotation: item.rotation ?? 0,
+  };
+}
+
+export function readPageItems(pageId?: string) {
+  const items = readItems<PageCanvasItem>(pageItemsKey).map(normalizePageItem);
+  return pageId ? items.filter((item) => item.page_id === pageId) : items;
+}
+
+export function savePageItems(items: PageCanvasItem[]) {
+  const allItems = readItems<PageCanvasItem>(pageItemsKey).map(normalizePageItem);
+  const ids = new Set(items.map((item) => item.id));
+  const nextItems = [
+    ...allItems.filter((item) => !ids.has(item.id)),
+    ...items.map(normalizePageItem),
+  ];
+  writeItems(pageItemsKey, nextItems);
+  persist(persistSupabasePageItems(items.map(normalizePageItem)));
+  emitArchiveEvent(archiveEvents.pageItems);
+}
+
+export function addPageItem(
+  pageId: string,
+  item: Omit<PageCanvasItem, "id" | "page_id" | "created_at">,
+) {
+  const createdItem: PageCanvasItem = normalizePageItem({
+    ...item,
+    id: crypto.randomUUID(),
+    page_id: pageId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+  savePageItems([createdItem]);
+  return createdItem;
+}
+
+export function updatePageItem(
+  itemId: string,
+  patch: Partial<PageCanvasItem>,
+) {
+  const items = readItems<PageCanvasItem>(pageItemsKey).map(normalizePageItem);
+  const nextItems = items.map((item) =>
+    item.id === itemId
+      ? normalizePageItem({
+          ...item,
+          ...patch,
+          updated_at: new Date().toISOString(),
+        })
+      : item,
+  );
+  const updatedItem = nextItems.find((item) => item.id === itemId) ?? null;
+
+  writeItems(pageItemsKey, nextItems);
+  if (updatedItem) persist(persistSupabasePageItems([updatedItem]));
+  emitArchiveEvent(archiveEvents.pageItems);
+  return updatedItem;
+}
+
+export function deletePageItem(itemId: string) {
+  writeItems(
+    pageItemsKey,
+    readPageItems().filter((item) => item.id !== itemId),
+  );
+  persist(deleteSupabasePageItem(itemId));
+  emitArchiveEvent(archiveEvents.pageItems);
 }
 
 export function readProjects() {
@@ -564,6 +770,8 @@ function normalizeBoardItem(item: BoardItem): BoardItem {
         ? Math.round(item.width * 1.25)
         : item.source_type === "separator"
           ? 2
+          : item.source_type === "page"
+            ? Math.round(item.width * 1.414)
           : item.source_type === "reference"
             ? 124
           : 180),
@@ -674,7 +882,7 @@ export function addSourceToProject(
     (item) => item.project_id === projectId && item.board_id === boardId,
   ).length;
 
-  const width = sourceType === "media" ? 260 : 300;
+  const width = sourceType === "media" ? 260 : sourceType === "page" ? 230 : 300;
   const item: BoardItem = {
     id: crypto.randomUUID(),
     project_id: projectId,
@@ -684,7 +892,12 @@ export function addSourceToProject(
     x: 88 + (projectItemCount % 4) * 70,
     y: 92 + Math.floor(projectItemCount / 4) * 84,
     width,
-    height: sourceType === "media" ? Math.round(width * 1.25) : 180,
+    height:
+      sourceType === "media"
+        ? Math.round(width * 1.25)
+        : sourceType === "page"
+          ? Math.round(width * 1.414)
+          : 180,
     created_at: new Date().toISOString(),
   };
 

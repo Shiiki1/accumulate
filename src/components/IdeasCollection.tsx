@@ -43,6 +43,16 @@ type IdeaDraft = {
 };
 
 type EntryFilter = "all" | "idea" | "reference";
+type SortOrder = "newest" | "oldest" | "title";
+type ViewMode = "cards" | "compact";
+
+function filterButtonClass(isActive: boolean) {
+  return `h-8 px-2.5 text-[11px] transition sm:h-9 sm:px-3 sm:text-xs ${
+    isActive
+      ? "border border-[var(--foreground)] text-[var(--foreground)]"
+      : "archive-button"
+  }`;
+}
 
 export function IdeasCollection() {
   const [items, setItems] = useState<IdeaItem[]>([]);
@@ -52,12 +62,15 @@ export function IdeasCollection() {
   const [draftIndicatorIds, setDraftIndicatorIds] = useState<string[]>([]);
   const [activeIndicatorIds, setActiveIndicatorIds] = useState<string[]>([]);
   const [entryFilter, setEntryFilter] = useState<EntryFilter>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [search, setSearch] = useState("");
   const [draftIdea, setDraftIdea] = useState<IdeaDraft | null>(null);
   const [draftEntryType, setDraftEntryType] =
     useState<NonNullable<IdeaItem["entry_type"]>>("idea");
   const indicators = useIndicators();
   const editingItem = items.find((item) => item.id === editingId) ?? null;
+  const isCompactView = viewMode === "compact";
 
   useEffect(() => {
     function loadItems() {
@@ -197,6 +210,15 @@ export function IdeasCollection() {
       item.body.toLowerCase().includes(normalizedSearch);
 
     return indicatorMatch && entryMatch && searchMatch;
+  }).sort((a, b) => {
+    if (sortOrder === "title") {
+      return a.title.localeCompare(b.title);
+    }
+
+    const aTime = new Date(a.created_at).getTime();
+    const bTime = new Date(b.created_at).getTime();
+
+    return sortOrder === "oldest" ? aTime - bTime : bTime - aTime;
   });
 
   const ideaCount = items.filter((item) => (item.entry_type ?? "idea") === "idea").length;
@@ -215,14 +237,17 @@ export function IdeasCollection() {
       >
         <section className="flex flex-col gap-8 border-b border-[var(--line)] pb-10 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="archive-label">
-              Ideas & References
-            </p>
+            <p className="archive-label">Ideas & References</p>
             <h1 className="font-serif-accent mt-3 text-6xl leading-none sm:text-7xl">
-              Index archive.
+              Notes and sources.
             </h1>
-            <p className="archive-meta mt-5 text-sm">
-              {ideaCount} ideas / {referenceCount} references
+            <p className="archive-meta mt-5 max-w-xl text-sm leading-6">
+              Ideas are your own working thoughts. References are external
+              people, places, collections, sources, and visual cues worth
+              remembering.
+            </p>
+            <p className="archive-meta mt-3 text-xs">
+              {ideaCount} notes / {referenceCount} references
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -237,41 +262,81 @@ export function IdeasCollection() {
               className="archive-button inline-flex h-11 w-fit items-center gap-2 px-4 text-sm"
             >
               <Plus size={15} />
-              Add Entry
+              Add note / reference
             </button>
           </div>
         </section>
-        <div className="mt-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {(["all", "idea", "reference"] as const).map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setEntryFilter(filter)}
-                className={`h-9 px-3 text-xs capitalize transition ${
-                  entryFilter === filter
-                    ? "border border-[var(--foreground)] text-[var(--foreground)]"
-                    : "archive-button"
-                }`}
-              >
-                {filter === "all"
-                  ? "All"
-                  : filter === "idea"
-                    ? "Ideas"
-                    : "References"}
-              </button>
-            ))}
-            <IndicatorFilter
-              selectedIds={activeIndicatorIds}
-              onChange={setActiveIndicatorIds}
-            />
+        <div className="mt-7 border-b border-[var(--line)] pb-5">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="flex flex-1 flex-wrap items-center gap-2">
+                <p className="archive-label mr-1 text-[10px]">Sort</p>
+                {([
+                  ["newest", "Newest"],
+                  ["oldest", "Oldest"],
+                  ["title", "Title A-Z"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSortOrder(value)}
+                    className={filterButtonClass(sortOrder === value)}
+                    aria-pressed={sortOrder === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <p className="archive-label ml-5 mr-1 text-[10px]">Type</p>
+                {(["all", "idea", "reference"] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setEntryFilter(filter)}
+                    className={filterButtonClass(entryFilter === filter)}
+                    aria-pressed={entryFilter === filter}
+                  >
+                    {filter === "all"
+                      ? "All"
+                      : filter === "idea"
+                        ? "Notes"
+                        : "References"}
+                  </button>
+                ))}
+                <p className="archive-label ml-5 mr-1 text-[10px]">View</p>
+                {([
+                  ["cards", "Cards"],
+                  ["compact", "Compact"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setViewMode(value)}
+                    className={filterButtonClass(viewMode === value)}
+                    aria-pressed={viewMode === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                }}
+                placeholder="Search ideas and references"
+                className="premium-focus archive-field h-10 w-full px-3 text-sm md:w-64"
+              />
+            </div>
+            {indicators.length ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="archive-label mr-1 text-[10px]">Indicators</p>
+                <IndicatorFilter
+                  selectedIds={activeIndicatorIds}
+                  onChange={setActiveIndicatorIds}
+                />
+              </div>
+            ) : null}
           </div>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search ideas and references"
-            className="premium-focus archive-field h-10 w-full px-3 text-sm md:w-64"
-          />
         </div>
 
         {filteredItems.length ? (
@@ -279,7 +344,11 @@ export function IdeasCollection() {
             variants={staggerParent}
             initial="hidden"
             animate="visible"
-            className="mt-12 grid gap-4 md:grid-cols-2"
+            className={
+              isCompactView
+                ? "mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                : "mt-12 grid gap-4 md:grid-cols-2"
+            }
           >
             {filteredItems.map((item) => {
               const isOpen = openIds.includes(item.id);
@@ -292,27 +361,33 @@ export function IdeasCollection() {
                   ? { includeRelatedMedia: true, includeRelatedIdeas: true }
                   : { includeRelatedReferences: true },
               );
+              const emptyReferenceContext = !item.body.trim();
 
               return (
                 <motion.article
+                  data-layout-item
+                  layout
                   variants={gridItemReveal}
                   key={item.id}
-                  className={`archive-card relative ${
+                  className={`archive-card relative flex h-full flex-col ${
                     isReference
-                      ? "bg-[color-mix(in_srgb,var(--surface)_72%,transparent)] p-6"
-                      : "bg-[color-mix(in_srgb,var(--surface)_50%,transparent)] p-5"
+                      ? "border-[color-mix(in_srgb,var(--foreground)_18%,var(--line))] bg-[color-mix(in_srgb,var(--surface)_76%,transparent)] p-6"
+                      : "border-[color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color-mix(in_srgb,var(--surface)_44%,transparent)] p-5"
+                  } ${isCompactView ? "!p-4" : ""
                   }`}
                 >
                   <IndicatorMarks indicators={selectedIndicators} />
-                  <div className="flex items-start justify-between gap-4">
-                    <div className={isReference ? "pr-2" : ""}>
+                  <div className="flex flex-1 items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
                       <div
-                        className={`mb-4 flex items-center justify-between gap-4 ${
-                          isReference ? "border-b border-[var(--line)] pb-3" : ""
+                        className={`flex items-center justify-between gap-4 ${
+                          isReference
+                            ? "mb-4 border-b border-[var(--line)] pb-3"
+                            : "mb-3"
                         }`}
                       >
                         <p className="archive-label text-[10px]">
-                          {isReference ? "Reference / Source" : "Idea / Thought"}
+                          {isReference ? "Reference / Source" : "Note"}
                         </p>
                         {relationships.moodboardPlacements.length ? (
                           <p className="archive-meta shrink-0 text-[10px]">
@@ -320,26 +395,40 @@ export function IdeasCollection() {
                           </p>
                         ) : null}
                       </div>
-                      <h2
-                        className={
-                          isReference
-                            ? "font-serif-accent text-3xl leading-none"
-                            : "text-lg font-medium leading-snug"
-                        }
-                      >
-                        {item.title}
-                      </h2>
-                      <p
-                        className={`whitespace-pre-wrap text-sm text-[var(--muted)] ${
-                          isReference
-                            ? "mt-5 leading-6"
-                            : "mt-4 max-w-[62ch] font-serif-accent text-lg leading-7"
-                        } ${
-                          isOpen ? "" : "line-clamp-3"
-                        }`}
-                      >
-                        {item.body}
-                      </p>
+                      {isReference ? (
+                        <>
+                          <h2 className="font-serif-accent text-3xl leading-none">
+                            {item.title}
+                          </h2>
+                          <div className={`${isCompactView ? "mt-4" : "mt-5"} border-l border-[var(--line)] pl-4`}>
+                            <p className="archive-label text-[9px]">
+                              Source context
+                            </p>
+                            <p
+                              className={`mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--muted)] ${
+                                isOpen ? "" : isCompactView ? "line-clamp-2" : "line-clamp-3"
+                              } ${emptyReferenceContext ? "italic" : ""}`}
+                            >
+                              {emptyReferenceContext
+                                ? "No context added yet."
+                                : item.body}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p
+                            className={`max-w-[62ch] whitespace-pre-wrap font-serif-accent text-xl leading-8 text-[var(--foreground)] ${
+                              isOpen ? "" : isCompactView ? "line-clamp-3" : "line-clamp-4"
+                            }`}
+                          >
+                            {item.body}
+                          </p>
+                          <h2 className={`${isCompactView ? "mt-4" : "mt-5"} max-w-[62ch] text-sm font-medium leading-snug text-[var(--muted)]`}>
+                            {item.title}
+                          </h2>
+                        </>
+                      )}
                     </div>
                     <div className="flex gap-1">
                       <button
@@ -391,25 +480,31 @@ export function IdeasCollection() {
                       </button>
                     </div>
                   </div>
-                  <div className="mt-5 flex flex-wrap items-center gap-2">
-                    <IndicatorMultiSelect
-                      compact
-                      value={item.indicator_ids}
-                      legacyValue={item.indicator_id}
-                      onChange={(indicatorIds) =>
-                        handleIndicatorChange(item.id, indicatorIds)
-                      }
-                    />
-                    <AddToProjectButton sourceType="idea" sourceId={item.id} />
+                  <div className="mt-auto pt-5">
+                    {relationshipLine ? (
+                      <p className="archive-meta border-t border-[var(--line)] pt-3">
+                        <span className="mr-1 text-[var(--foreground)]">
+                          {isReference ? "Source memory" : "Connected to"}
+                        </span>
+                        {relationshipLine}
+                      </p>
+                    ) : null}
+                    <div
+                      className={`flex flex-wrap items-center gap-2 ${
+                        relationshipLine ? "mt-4" : "border-t border-[var(--line)] pt-3"
+                      }`}
+                    >
+                      <IndicatorMultiSelect
+                        compact
+                        value={item.indicator_ids}
+                        legacyValue={item.indicator_id}
+                        onChange={(indicatorIds) =>
+                          handleIndicatorChange(item.id, indicatorIds)
+                        }
+                      />
+                      <AddToProjectButton sourceType="idea" sourceId={item.id} />
+                    </div>
                   </div>
-                  {relationshipLine ? (
-                    <p className="archive-meta mt-4 border-t border-[var(--line)] pt-3">
-                      <span className="mr-1 text-[var(--foreground)]">
-                        {isReference ? "Evidence" : "Memory"}
-                      </span>
-                      {relationshipLine}
-                    </p>
-                  ) : null}
                 </motion.article>
               );
             })}
@@ -480,8 +575,8 @@ export function IdeasCollection() {
               </div>
               <p className="archive-meta leading-5">
                 {draftEntryType === "idea"
-                  ? "Idea: your own note, concept, direction, or plan."
-                  : "Reference: an external artist, brand, collection, aesthetic, place, or visual concept."}
+                  ? "Idea / Note: your own thought, direction, plan, observation, or working note."
+                  : "Reference / Source: external inspiration such as an artist, brand, collection, place, movement, material, or visual cue."}
               </p>
               <input
                 name="title"
@@ -490,7 +585,7 @@ export function IdeasCollection() {
                 placeholder={
                   draftEntryType === "reference"
                     ? "Maison Margiela SS03"
-                    : "Title"
+                    : "Working title"
                 }
                 className="premium-focus archive-field h-12 w-full px-3 text-sm"
               />
@@ -501,8 +596,8 @@ export function IdeasCollection() {
                 defaultValue={draftIdea?.body ?? ""}
                 placeholder={
                   draftEntryType === "reference"
-                    ? "Optional context or note"
-                    : "Idea"
+                    ? "Source context, why it matters, or where it came from"
+                    : "Write the thought, direction, or observation"
                 }
                 className="premium-focus archive-field w-full resize-none px-3 py-3 text-sm leading-6"
               />

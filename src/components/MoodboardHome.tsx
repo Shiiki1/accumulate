@@ -24,6 +24,7 @@ import {
   Bookmark,
   Info,
   Minus,
+  Palette,
   Pencil,
   Plus,
   Trash2,
@@ -88,6 +89,7 @@ type BoardSectionProps = {
   onAddText: (boardId: string) => void;
   onAddReference: (boardId: string) => void;
   onAddSeparator: (boardId: string) => void;
+  onAddColor: (boardId: string) => void;
   onAddBoard: () => void;
   onDeleteBoard: (boardId: string) => void;
   onPatchItem: (itemId: string, patch: Partial<BoardItem>) => void;
@@ -119,7 +121,9 @@ const workspaceWidth = 6000;
 const workspaceHeight = 3600;
 const defaultBoardWindowHeight = 720;
 const minViewportHeight = 560;
-const maxViewportHeight = 1040;
+const maxViewportHeight = 3200;
+const resizeAutoScrollEdge = 80;
+const resizeAutoScrollStep = 18;
 const zoomExclusions = [
   "board-pan-exclude",
   "button",
@@ -142,6 +146,36 @@ function clampBoardWindowHeight(height: number) {
     maxViewportHeight,
     Math.max(minViewportHeight, Math.round(height)),
   );
+}
+
+function normalizeHexColor(value: string) {
+  const trimmed = value.trim();
+  const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toUpperCase() : null;
+}
+
+function hexToRgb(hex: string) {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return null;
+
+  return {
+    r: Number.parseInt(normalized.slice(1, 3), 16),
+    g: Number.parseInt(normalized.slice(3, 5), 16),
+    b: Number.parseInt(normalized.slice(5, 7), 16),
+  };
+}
+
+function rgbLabel(hex: string) {
+  const rgb = hexToRgb(hex);
+  return rgb ? `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` : "";
+}
+
+function isLightColor(hex: string) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return false;
+
+  return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 170;
 }
 
 function readBoardWindowHeight(boardId: string) {
@@ -208,10 +242,15 @@ function hostLabel(url: string) {
 }
 
 function itemHeight(item: BoardItem) {
+  if (isColorSwatchItem(item)) return item.height ?? 120;
   if (item.source_type === "media") return Math.round(item.width * 1.25);
   if (item.source_type === "separator") return item.height ?? 4;
   if (item.source_type === "reference") return item.height ?? 124;
   return item.height ?? 160;
+}
+
+function isColorSwatchItem(item: BoardItem) {
+  return item.source_type === "text" && item.reference_title === "color-swatch";
 }
 
 function sourceRoute(sourceType: BoardItem["source_type"]) {
@@ -227,6 +266,8 @@ function sourceDetailRoute(item: ResolvedBoardItem) {
 }
 
 function sourceLabel(item: ResolvedBoardItem) {
+  if (isColorSwatchItem(item)) return "color";
+
   if (item.source_type === "idea" && item.source && "body" in item.source) {
     return item.source.entry_type === "reference" ? "reference" : "idea";
   }
@@ -244,6 +285,7 @@ function boardObjectClass(
   if (item.source_type === "media") return "board-object board-object-media";
   if (item.source_type === "website") return "board-object board-object-resource";
   if (item.source_type === "reference") return "board-object board-object-reference";
+  if (isColorSwatchItem(item)) return "board-object-color";
   if (item.source_type === "text") {
     return item.text_box_enabled ? "board-object board-object-text" : "";
   }
@@ -281,13 +323,18 @@ function BoardCard({
     item.source && "body" in item.source
       ? (item.source.entry_type ?? "idea") === "reference"
       : false;
+  const isColorSwatch = isColorSwatchItem(item);
+  const colorHex = normalizeHexColor(item.content ?? item.text_color ?? "") ?? "#E8E1D6";
+  const lightColor = isLightColor(colorHex);
 
   return (
     <Rnd
       bounds="parent"
       cancel="[data-board-control]"
       dragHandleClassName={
-        item.source_type === "text" ? "board-drag-handle" : undefined
+        item.source_type === "text" && !isColorSwatch
+          ? "board-drag-handle"
+          : undefined
       }
       minWidth={isVerticalSeparator ? separatorThickness : isSeparator ? 100 : 90}
       minHeight={isVerticalSeparator ? 100 : isSeparator ? separatorThickness : 64}
@@ -392,6 +439,20 @@ function BoardCard({
             className="no-card-scrollbar mt-3 flex-1 resize-none bg-transparent text-xs leading-5 text-[var(--board-muted)] outline-none placeholder:text-[var(--board-muted)]"
           />
         </div>
+      ) : isColorSwatch ? (
+        <div
+          className="h-full w-full rounded-[4px] border"
+          style={{
+            backgroundColor: colorHex,
+            borderColor: lightColor
+              ? "rgb(30 25 20 / 0.22)"
+              : "rgb(255 255 255 / 0.16)",
+            boxShadow: lightColor
+              ? "inset 0 0 0 1px rgb(255 255 255 / 0.22)"
+              : "inset 0 0 0 1px rgb(255 255 255 / 0.08)",
+          }}
+          aria-label={`Color swatch ${colorHex}`}
+        />
       ) : item.source_type === "text" ? (
         <div className="relative h-full w-full">
           <button
@@ -469,22 +530,25 @@ function BoardCard({
         </div>
       ) : item.source && "source_url" in item.source ? (
         <div className="flex h-full flex-col overflow-hidden p-4">
-          <div className="flex items-start justify-between gap-3 border-b border-[var(--board-card-border)] pb-3">
+          <div className="border-b border-[var(--board-card-border)] pb-3">
+            <div className="flex items-start justify-between gap-3">
+              <p className="max-w-[68%] text-sm font-medium uppercase leading-tight tracking-[0.18em] text-[var(--board-card-text)]">
+                {item.source.categories?.[0] ?? "Resource"}
+              </p>
+              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--board-muted)]">
+                Source
+              </span>
+            </div>
             <a
               data-board-control
               href={item.source.source_url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex max-w-full items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-[var(--board-muted)] transition hover:text-[var(--board-card-text)]"
+              className="mt-3 inline-flex max-w-full items-center gap-1.5 text-[10px] uppercase tracking-[0.2em] text-[var(--board-muted)] transition hover:text-[var(--board-card-text)]"
             >
               <span className="truncate">{hostLabel(item.source.source_url)}</span>
               <ExternalLink size={10} />
             </a>
-            {item.source.categories?.[0] ? (
-              <span className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-[var(--board-muted)]">
-                {item.source.categories[0]}
-              </span>
-            ) : null}
           </div>
           <div className="pt-3">
             <h3 className="line-clamp-2 text-sm font-medium">
@@ -546,6 +610,7 @@ function BoardSection({
   onAddText,
   onAddReference,
   onAddSeparator,
+  onAddColor,
   onAddBoard,
   onDeleteBoard,
   onPatchItem,
@@ -558,12 +623,22 @@ function BoardSection({
   const sectionRef = useRef<HTMLElement | null>(null);
   const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const resizeAutoScrollFrame = useRef<number | null>(null);
+  const resizePointerY = useRef<number | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
   const [boardWindowHeight, setBoardWindowHeight] = useState(() =>
     readBoardWindowHeight(board.id),
   );
   const gridStyle = fixedGridStyle();
+
+  useEffect(() => {
+    return () => {
+      if (resizeAutoScrollFrame.current !== null) {
+        window.cancelAnimationFrame(resizeAutoScrollFrame.current);
+      }
+    };
+  }, []);
 
   function syncGridPosition(positionX: number, positionY: number) {
     const minorX = `${positionX % 48}px`;
@@ -579,20 +654,54 @@ function BoardSection({
     event.preventDefault();
     const startY = event.clientY;
     const startHeight = boardWindowHeight;
+    const startScrollY = window.scrollY;
+    resizePointerY.current = event.clientY;
 
-    function handleMove(moveEvent: MouseEvent) {
+    function updateHeight(clientY: number) {
       const nextHeight = clampBoardWindowHeight(
-        startHeight + moveEvent.clientY - startY,
+        startHeight + clientY - startY + window.scrollY - startScrollY,
       );
       setBoardWindowHeight(nextHeight);
       saveBoardWindowHeight(board.id, nextHeight);
     }
 
+    function tickAutoScroll() {
+      const pointerY = resizePointerY.current;
+
+      if (pointerY !== null) {
+        if (pointerY > window.innerHeight - resizeAutoScrollEdge) {
+          window.scrollBy({ top: resizeAutoScrollStep, behavior: "auto" });
+          updateHeight(pointerY);
+        } else if (pointerY < resizeAutoScrollEdge) {
+          window.scrollBy({ top: -resizeAutoScrollStep, behavior: "auto" });
+          updateHeight(pointerY);
+        }
+      }
+
+      resizeAutoScrollFrame.current =
+        window.requestAnimationFrame(tickAutoScroll);
+    }
+
+    function stopAutoScroll() {
+      if (resizeAutoScrollFrame.current !== null) {
+        window.cancelAnimationFrame(resizeAutoScrollFrame.current);
+        resizeAutoScrollFrame.current = null;
+      }
+      resizePointerY.current = null;
+    }
+
+    function handleMove(moveEvent: MouseEvent) {
+      resizePointerY.current = moveEvent.clientY;
+      updateHeight(moveEvent.clientY);
+    }
+
     function handleUp() {
+      stopAutoScroll();
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     }
 
+    resizeAutoScrollFrame.current = window.requestAnimationFrame(tickAutoScroll);
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp, { once: true });
   }
@@ -750,6 +859,14 @@ function BoardSection({
           </button>
           <button
             type="button"
+            onClick={() => onAddColor(board.id)}
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
+          >
+            <Palette size={13} />
+            Color
+          </button>
+          <button
+            type="button"
             onClick={onAddBoard}
             className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
@@ -901,6 +1018,9 @@ export function MoodboardHome() {
   const [infoItem, setInfoItem] = useState<ResolvedBoardItem | null>(null);
   const [editItem, setEditItem] = useState<ResolvedBoardItem | null>(null);
   const [separatorBoardId, setSeparatorBoardId] = useState<string | null>(null);
+  const [colorBoardId, setColorBoardId] = useState<string | null>(null);
+  const [colorDraft, setColorDraft] = useState("#E8E1D6");
+  const [colorError, setColorError] = useState("");
   const [snapMode, setSnapMode] = useState<SnapMode>("free");
   const [moodboardZoom, setMoodboardZoom] = useState<number>(1);
 
@@ -1187,6 +1307,43 @@ export function MoodboardHome() {
     setSeparatorBoardId(boardId);
   }
 
+  function addColor(boardId: string) {
+    setColorBoardId(boardId);
+    setColorDraft("#E8E1D6");
+    setColorError("");
+  }
+
+  function createColorSwatch() {
+    if (!colorBoardId) return;
+
+    const hex = normalizeHexColor(colorDraft);
+    if (!hex) {
+      setColorError("Use a valid HEX color, for example #E8E1D6.");
+      return;
+    }
+
+    const item = addBoardElement("text", hex, activeProjectId, colorBoardId);
+    updateBoardItem(item.id, {
+      reference_title: "color-swatch",
+      reference_note: "",
+      text_box_enabled: false,
+      text_color: hex,
+      text_size: 12,
+      width: 140,
+      height: 120,
+    });
+    setColorBoardId(null);
+    setColorError("");
+    setBoardItems(readBoardItems(activeProjectId));
+  }
+
+  function copyColor(hex: string) {
+    const normalized = normalizeHexColor(hex);
+    if (!normalized) return;
+
+    void navigator.clipboard?.writeText(normalized);
+  }
+
   function createSeparator(orientation: "horizontal" | "vertical") {
     if (!separatorBoardId) return;
 
@@ -1263,6 +1420,7 @@ export function MoodboardHome() {
             onAddText={addText}
             onAddReference={addReference}
             onAddSeparator={addSeparator}
+            onAddColor={addColor}
             onAddBoard={addBoard}
             onDeleteBoard={removeBoard}
             onPatchItem={patchBoardItem}
@@ -1329,6 +1487,16 @@ export function MoodboardHome() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
+          {isColorSwatchItem(contextMenu.item) ? (
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                HEX
+              </span>
+              <span className="font-mono text-xs uppercase text-[var(--foreground)]">
+                {normalizeHexColor(contextMenu.item.content ?? "") ?? "#E8E1D6"}
+              </span>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -1340,6 +1508,19 @@ export function MoodboardHome() {
             <Info size={13} />
             Info
           </button>
+          {isColorSwatchItem(contextMenu.item) ? (
+            <button
+              type="button"
+              onClick={() => {
+                copyColor(contextMenu.item.content ?? "");
+                setContextMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]"
+            >
+              <Copy size={13} />
+              Copy HEX
+            </button>
+          ) : null}
           {sourceRoute(contextMenu.item.source_type) ? (
             <button
               type="button"
@@ -1387,11 +1568,11 @@ export function MoodboardHome() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="fixed inset-0 z-[75] bg-[rgb(18_14_10_/_0.18)] px-4 py-8 backdrop-blur-md"
+            className="fixed inset-0 z-[75] flex items-center justify-center overflow-y-auto bg-[rgb(18_14_10_/_0.18)] px-4 py-8 backdrop-blur-md"
           >
             <motion.div
               variants={modalPanel}
-              className="archive-panel mx-auto max-w-2xl bg-[var(--background)] p-5"
+              className="archive-panel max-h-[calc(100vh-4rem)] w-full max-w-2xl overflow-y-auto bg-[var(--background)] p-5"
             >
               <div className="flex items-start justify-between gap-5">
                 <div>
@@ -1529,6 +1710,41 @@ export function MoodboardHome() {
 
               {!infoItem.source ? (
                 <div className="mt-6 space-y-3 text-sm leading-6 text-[var(--muted)]">
+                  {isColorSwatchItem(infoItem) ? (
+                    <div className="space-y-4">
+                      <div
+                        className="h-36 border"
+                        style={{
+                          backgroundColor:
+                            normalizeHexColor(infoItem.content ?? "") ?? "#E8E1D6",
+                          borderColor: isLightColor(infoItem.content ?? "")
+                            ? "rgb(30 25 20 / 0.22)"
+                            : "rgb(255 255 255 / 0.16)",
+                        }}
+                      />
+                      <div className="archive-panel grid gap-3 p-3 sm:grid-cols-2">
+                        <p>
+                          <span className="archive-label mr-2 text-[10px]">HEX</span>
+                          {normalizeHexColor(infoItem.content ?? "") ?? "#E8E1D6"}
+                        </p>
+                        <p>
+                          <span className="archive-label mr-2 text-[10px]">RGB</span>
+                          {rgbLabel(infoItem.content ?? "")}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyColor(infoItem.content ?? "")}
+                        className="archive-button inline-flex h-9 items-center gap-2 px-3 text-xs"
+                      >
+                        <Copy size={13} />
+                        Copy HEX
+                      </button>
+                      <p className="archive-meta">
+                        Color analysis coming later.
+                      </p>
+                    </div>
+                  ) : null}
                   {infoItem.source_type === "reference" ? (
                     <>
                       <p>Title: {infoItem.reference_title ?? infoItem.content}</p>
@@ -1537,7 +1753,7 @@ export function MoodboardHome() {
                       ) : null}
                     </>
                   ) : null}
-                  {infoItem.source_type === "text" ? (
+                  {infoItem.source_type === "text" && !isColorSwatchItem(infoItem) ? (
                     <p className="whitespace-pre-wrap">{infoItem.content}</p>
                   ) : null}
                   {infoItem.source_type === "separator" ? (
@@ -1568,13 +1784,13 @@ export function MoodboardHome() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="fixed inset-0 z-[75] bg-[rgb(18_14_10_/_0.18)] px-4 py-8 backdrop-blur-md"
+            className="fixed inset-0 z-[75] flex items-center justify-center overflow-y-auto bg-[rgb(18_14_10_/_0.18)] px-4 py-8 backdrop-blur-md"
           >
             <motion.div
               variants={modalPanel}
               role="dialog"
               aria-modal="true"
-                  className="archive-panel mx-auto max-w-lg bg-[var(--background)] p-5"
+                  className="archive-panel max-h-[calc(100vh-4rem)] w-full max-w-lg overflow-y-auto bg-[var(--background)] p-5"
             >
               <div className="flex items-start justify-between gap-5">
                 <div>
@@ -1595,7 +1811,57 @@ export function MoodboardHome() {
                 </button>
               </div>
 
-              {editItem.source_type === "text" ? (
+              {isColorSwatchItem(editItem) ? (
+                <div className="mt-6 space-y-3">
+                  <div
+                    className="h-28 border"
+                    style={{
+                      backgroundColor:
+                        normalizeHexColor(editItem.content ?? "") ?? "#E8E1D6",
+                      borderColor: isLightColor(editItem.content ?? "")
+                        ? "rgb(30 25 20 / 0.22)"
+                        : "rgb(255 255 255 / 0.16)",
+                    }}
+                  />
+                  <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <input
+                      value={editItem.content ?? ""}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        const normalized = normalizeHexColor(nextValue);
+                        const patch: Partial<BoardItem> = {
+                          content: nextValue,
+                          text_color: normalized ?? editItem.text_color,
+                        };
+                        patchBoardItem(editItem.id, patch);
+                        setEditItem({ ...editItem, ...patch });
+                      }}
+                      placeholder="#E8E1D6"
+                      className="premium-focus h-10 border border-[var(--line)] bg-transparent px-3 font-mono text-sm uppercase"
+                      aria-label="Color HEX"
+                    />
+                    <input
+                      type="color"
+                      value={
+                        normalizeHexColor(editItem.content ?? "") ?? "#E8E1D6"
+                      }
+                      onChange={(event) => {
+                        const hex = normalizeHexColor(event.target.value) ?? "#E8E1D6";
+                        const patch: Partial<BoardItem> = {
+                          content: hex,
+                          text_color: hex,
+                        };
+                        patchBoardItem(editItem.id, patch);
+                        setEditItem({ ...editItem, ...patch });
+                      }}
+                      className="h-10 w-14 border border-[var(--line)] bg-transparent"
+                      aria-label="Pick color"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {editItem.source_type === "text" && !isColorSwatchItem(editItem) ? (
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
                   <button
                     type="button"
@@ -1784,6 +2050,83 @@ export function MoodboardHome() {
                   Vertical
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+
+        {colorBoardId ? (
+          <motion.div
+            variants={modalOverlay}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="fixed inset-0 z-[76] bg-[rgb(18_14_10_/_0.18)] px-4 py-8 backdrop-blur-md"
+          >
+            <motion.div
+              variants={modalPanel}
+              role="dialog"
+              aria-modal="true"
+              className="mx-auto max-w-sm border border-[var(--line)] bg-[var(--background)] p-5"
+            >
+              <div className="flex items-start justify-between gap-5">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">
+                    Color
+                  </p>
+                  <h2 className="font-serif-accent mt-2 text-4xl leading-none">
+                    Swatch.
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setColorBoardId(null)}
+                  className="grid size-9 place-items-center border border-[var(--line)] text-[var(--muted)]"
+                  aria-label="Close color dialog"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div
+                className="mt-6 h-28 border"
+                style={{
+                  backgroundColor: normalizeHexColor(colorDraft) ?? "#E8E1D6",
+                  borderColor: isLightColor(colorDraft)
+                    ? "rgb(30 25 20 / 0.22)"
+                    : "rgb(255 255 255 / 0.16)",
+                }}
+              />
+              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+                <input
+                  value={colorDraft}
+                  onChange={(event) => {
+                    setColorDraft(event.target.value);
+                    setColorError("");
+                  }}
+                  placeholder="#E8E1D6"
+                  className="premium-focus h-10 border border-[var(--line)] bg-transparent px-3 font-mono text-sm uppercase"
+                  aria-label="HEX color"
+                />
+                <input
+                  type="color"
+                  value={normalizeHexColor(colorDraft) ?? "#E8E1D6"}
+                  onChange={(event) => {
+                    setColorDraft(event.target.value.toUpperCase());
+                    setColorError("");
+                  }}
+                  className="h-10 w-14 border border-[var(--line)] bg-transparent"
+                  aria-label="Pick color"
+                />
+              </div>
+              {colorError ? (
+                <p className="mt-3 text-xs text-[var(--muted)]">{colorError}</p>
+              ) : null}
+              <button
+                type="button"
+                onClick={createColorSwatch}
+                className="mt-5 h-10 bg-[var(--foreground)] px-4 text-sm font-medium text-[var(--background)] transition hover:opacity-90"
+              >
+                Add color
+              </button>
             </motion.div>
           </motion.div>
         ) : null}

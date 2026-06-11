@@ -103,13 +103,44 @@ export type PinboardItem = {
   created_at: string;
 };
 
+export type PageFormat = "a4-portrait";
+
+export type PageItem = {
+  id: string;
+  user_id?: string | null;
+  project_id?: string | null;
+  title: string;
+  format: PageFormat;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type PageCanvasItemType = "image" | "text";
+
+export type PageCanvasItem = {
+  id: string;
+  user_id?: string | null;
+  page_id: string;
+  type: PageCanvasItemType;
+  source_id?: string | null;
+  content?: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  created_at: string;
+  updated_at?: string;
+};
+
 export type BoardSourceType =
   | "media"
   | "website"
   | "idea"
   | "text"
   | "separator"
-  | "reference";
+  | "reference"
+  | "page";
 
 export type BoardItem = {
   id: string;
@@ -142,6 +173,8 @@ export type ArchiveSnapshot = {
   boardItems: BoardItem[];
   indicators: IndicatorItem[];
   collections: CollectionItem[];
+  pages: PageItem[];
+  pageItems: PageCanvasItem[];
 };
 
 type TableDefinition<Row, Insert = Row, Update = Partial<Row>> = {
@@ -207,6 +240,8 @@ export type Database = {
       };
       boards: TableDefinition<SupabaseRow<PinboardItem>>;
       board_items: TableDefinition<SupabaseRow<BoardItem>>;
+      pages: TableDefinition<SupabaseRow<PageItem>>;
+      page_items: TableDefinition<SupabaseRow<PageCanvasItem>>;
       project_board_items: {
         Row: BoardItem;
         Insert: Omit<BoardItem, "id" | "created_at"> & {

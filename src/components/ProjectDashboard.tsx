@@ -185,12 +185,18 @@ export function ProjectDashboard() {
 
   const projectCards = useMemo(
     () =>
-      projects.map((project) => ({
-        project,
-        stats: projectStats(project.id, ideas),
-        lastUpdated: projectLastUpdated(project),
-      })),
-    [ideas, projects],
+      projects
+        .map((project) => ({
+          project,
+          stats: projectStats(project.id, ideas),
+          lastUpdated: projectLastUpdated(project),
+        }))
+        .sort((a, b) => {
+          if (a.project.id === activeProjectId) return -1;
+          if (b.project.id === activeProjectId) return 1;
+          return 0;
+        }),
+    [activeProjectId, ideas, projects],
   );
 
   const captures = useMemo(
@@ -334,11 +340,18 @@ export function ProjectDashboard() {
           animate="visible"
           className="mt-10 grid gap-4 md:grid-cols-2"
         >
-          {projectCards.map(({ project, stats, lastUpdated }) => (
+          {projectCards.map(({ project, stats, lastUpdated }) => {
+            const isActiveProject = project.id === activeProjectId;
+
+            return (
             <motion.article
               key={project.id}
               variants={gridItemReveal}
-              className="archive-card group p-6"
+              className={`archive-card group p-6 ${
+                isActiveProject
+                  ? "md:col-span-2 bg-[color-mix(in_srgb,var(--surface)_82%,transparent)] p-7"
+                  : ""
+              }`}
             >
               <div className="flex items-start justify-between gap-4">
                 {renameId === project.id ? (
@@ -364,7 +377,14 @@ export function ProjectDashboard() {
                     onClick={() => openProject(project.id)}
                     className="block min-w-0 flex-1 text-left"
                   >
-                    <h2 className="font-serif-accent text-4xl leading-none transition group-hover:opacity-85">
+                    <p className="archive-label mb-3 text-[10px]">
+                      {isActiveProject ? "Current project" : "Project"}
+                    </p>
+                    <h2
+                      className={`font-serif-accent leading-none transition group-hover:opacity-85 ${
+                        isActiveProject ? "text-5xl sm:text-6xl" : "text-4xl"
+                      }`}
+                    >
                       {project.title}
                     </h2>
                   </button>
@@ -383,7 +403,13 @@ export function ProjectDashboard() {
                 onClick={() => openProject(project.id)}
                 className="mt-8 block w-full text-left"
               >
-                <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+                <div
+                  className={`grid gap-x-6 gap-y-4 ${
+                    isActiveProject
+                      ? "grid-cols-2 border-y border-[var(--line)] py-5 sm:grid-cols-4"
+                      : "grid-cols-2 sm:grid-cols-4"
+                  }`}
+                >
                   {[
                     ["Media", stats.media],
                     ["Ideas", stats.ideas],
@@ -391,7 +417,7 @@ export function ProjectDashboard() {
                     ["Resources", stats.resources],
                   ].map(([label, value]) => (
                     <p key={label} className="space-y-1">
-                      <span className="block text-lg text-[var(--foreground)]">
+                      <span className={`${isActiveProject ? "text-2xl" : "text-lg"} block text-[var(--foreground)]`}>
                         {value}
                       </span>
                       <span className="archive-meta block">{label}</span>
@@ -451,11 +477,12 @@ export function ProjectDashboard() {
                 </button>
               </div>
             </motion.article>
-          ))}
+            );
+          })}
         </motion.section>
 
-        <section className="mt-16 grid gap-8 lg:grid-cols-[1fr_0.8fr]">
-          <div className="border-t border-[var(--line)] pt-6">
+        <section className="mt-16 grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
+          <div className="archive-panel p-5">
             <p className="archive-label">
               Continue
             </p>
@@ -477,8 +504,8 @@ export function ProjectDashboard() {
               </button>
             ) : null}
             {recentResources.length ? (
-              <div className="mt-5">
-                <p className="archive-label mb-2 text-[10px]">
+              <div className="mt-6 border-t border-[var(--line)] pt-5">
+                <p className="archive-label mb-3 text-[10px]">
                   Recently used resources
                 </p>
                 <div className="grid gap-2">
@@ -503,7 +530,10 @@ export function ProjectDashboard() {
                 </div>
               </div>
             ) : null}
-            <div className="mt-5 grid gap-2">
+            <div className="mt-6 grid gap-2 border-t border-[var(--line)] pt-5">
+              <p className="archive-label mb-1 text-[10px]">
+                Recent archive
+              </p>
               {captures.length ? (
                 captures.map((capture) => (
                   <article
@@ -536,7 +566,7 @@ export function ProjectDashboard() {
             </div>
           </div>
 
-          <div className="border-t border-[var(--line)] pt-6">
+          <div className="archive-panel p-5">
             <p className="archive-label">
               Toolkit collections
             </p>
