@@ -103,6 +103,17 @@ export type PinboardItem = {
   created_at: string;
 };
 
+export type PaletteColorItem = {
+  id: string;
+  user_id?: string | null;
+  project_id: string;
+  name?: string | null;
+  hex: string;
+  favorite: boolean;
+  created_at: string;
+  updated_at?: string;
+};
+
 export type PageFormat = "a4-portrait";
 
 export type PageItem = {

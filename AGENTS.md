@@ -1,8 +1,8 @@
-# AGENTS.md — CURATION PLATFORM
+# AGENTS.md — ACCUMULATE
 
 ## Role
 
-You are helping build a premium visual curation platform.
+You are helping build Accumulate, a premium visual curation platform.
 
 The user wants a place to collect inspiration across:
 

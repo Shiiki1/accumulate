@@ -8,6 +8,7 @@ import type {
   IndicatorItem,
   PageCanvasItem,
   PageItem,
+  PaletteColorItem,
   PinboardItem,
   ProjectItem,
   WebsiteItem,
@@ -45,6 +46,7 @@ const projectsKey = "accumulate.projects";
 const pinboardsKey = "accumulate.pinboards";
 const pagesKey = "accumulate.pages";
 const pageItemsKey = "accumulate.pageItems";
+const paletteColorsKey = "accumulate.paletteColors";
 const collectionsKey = "accumulate.collections";
 const activeProjectKey = "accumulate.activeProject";
 const indicatorsKey = "accumulate.indicators";
@@ -59,6 +61,7 @@ export const archiveEvents = {
   collections: "accumulate:collections",
   pages: "accumulate:pages",
   pageItems: "accumulate:page-items",
+  paletteColors: "accumulate:palette-colors",
 } as const;
 
 function emitArchiveEvent(eventName: string) {
@@ -113,6 +116,16 @@ function normalizePage(page: PageItem): PageItem {
     ...page,
     format: page.format ?? "a4-portrait",
     project_id: page.project_id ?? null,
+  };
+}
+
+function normalizePaletteColor(color: PaletteColorItem): PaletteColorItem {
+  return {
+    ...color,
+    name: color.name ?? "",
+    hex: color.hex.toUpperCase(),
+    favorite: Boolean(color.favorite),
+    updated_at: color.updated_at ?? color.created_at,
   };
 }
 
@@ -702,6 +715,23 @@ export function saveIndicators(indicators: IndicatorItem[]) {
   writeItems(indicatorsKey, indicators);
   persist(replaceSupabaseIndicators(indicators));
   emitArchiveEvent("accumulate:indicators");
+}
+
+export function readPaletteColors(projectId = readActiveProjectId()) {
+  return readItems<PaletteColorItem>(paletteColorsKey)
+    .map(normalizePaletteColor)
+    .filter((color) => color.project_id === projectId);
+}
+
+export function savePaletteColors(colors: PaletteColorItem[]) {
+  const normalizedColors = colors.map(normalizePaletteColor);
+  const projectIds = new Set(normalizedColors.map((color) => color.project_id));
+  const existingColors = readItems<PaletteColorItem>(paletteColorsKey)
+    .map(normalizePaletteColor)
+    .filter((color) => !projectIds.has(color.project_id));
+
+  writeItems(paletteColorsKey, [...existingColors, ...normalizedColors]);
+  emitArchiveEvent(archiveEvents.paletteColors);
 }
 
 export function readPinboards(projectId = readActiveProjectId()) {

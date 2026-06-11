@@ -27,6 +27,7 @@ import {
   Palette,
   Pencil,
   Plus,
+  Star,
   Trash2,
   Type,
   X,
@@ -55,10 +56,12 @@ import {
   readIdeaItems,
   readIndicators,
   readMediaItems,
+  readPaletteColors,
   readPinboards,
   readProjects,
   readWebsiteItems,
   saveActiveProjectId,
+  savePaletteColors,
   saveProjects,
   updateBoardItem,
 } from "@/lib/localArchive";
@@ -69,6 +72,7 @@ import type {
   DisplayItem,
   IdeaItem,
   IndicatorItem,
+  PaletteColorItem,
   PinboardItem,
   ProjectItem,
   WebsiteItem,
@@ -90,6 +94,7 @@ type BoardSectionProps = {
   onAddReference: (boardId: string) => void;
   onAddSeparator: (boardId: string) => void;
   onAddColor: (boardId: string) => void;
+  onOpenPalette: (boardId: string) => void;
   onAddBoard: () => void;
   onDeleteBoard: (boardId: string) => void;
   onPatchItem: (itemId: string, patch: Partial<BoardItem>) => void;
@@ -111,6 +116,7 @@ type ContextMenuState = {
 } | null;
 
 type SnapMode = "free" | "soft";
+type PaletteSort = "favorites" | "newest" | "name" | "hue";
 
 const snapModeKey = "accumulate.snapMode";
 const boardWindowHeightsKey = "accumulate.boardWindowHeights";
@@ -169,6 +175,30 @@ function hexToRgb(hex: string) {
 function rgbLabel(hex: string) {
   const rgb = hexToRgb(hex);
   return rgb ? `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` : "";
+}
+
+function colorHue(hex: string) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0;
+
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  if (delta === 0) return 0;
+
+  let hue =
+    max === r
+      ? ((g - b) / delta) % 6
+      : max === g
+        ? (b - r) / delta + 2
+      : (r - g) / delta + 4;
+
+  hue *= 60;
+  return hue < 0 ? hue + 360 : hue;
 }
 
 function isLightColor(hex: string) {
@@ -611,6 +641,7 @@ function BoardSection({
   onAddReference,
   onAddSeparator,
   onAddColor,
+  onOpenPalette,
   onAddBoard,
   onDeleteBoard,
   onPatchItem,
@@ -867,6 +898,14 @@ function BoardSection({
           </button>
           <button
             type="button"
+            onClick={() => onOpenPalette(board.id)}
+            className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
+          >
+            <Palette size={13} />
+            Palette
+          </button>
+          <button
+            type="button"
             onClick={onAddBoard}
             className="archive-button inline-flex h-8 items-center gap-2 px-2.5 text-xs"
           >
@@ -1011,9 +1050,18 @@ export function MoodboardHome() {
   const [websiteItems, setWebsiteItems] = useState<WebsiteItem[]>([]);
   const [ideaItems, setIdeaItems] = useState<IdeaItem[]>([]);
   const [indicators, setIndicators] = useState<IndicatorItem[]>([]);
+  const [paletteColors, setPaletteColors] = useState<PaletteColorItem[]>([]);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isProjectPaletteOpen, setIsProjectPaletteOpen] = useState(false);
+  const [paletteBoardId, setPaletteBoardId] = useState<string | null>(null);
+  const [paletteSort, setPaletteSort] = useState<PaletteSort>("favorites");
+  const [paletteEditingId, setPaletteEditingId] = useState<string | null>(null);
+  const [paletteDraftHex, setPaletteDraftHex] = useState("#E8E1D6");
+  const [paletteDraftName, setPaletteDraftName] = useState("");
+  const [paletteDraftFavorite, setPaletteDraftFavorite] = useState(false);
+  const [paletteError, setPaletteError] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [infoItem, setInfoItem] = useState<ResolvedBoardItem | null>(null);
   const [editItem, setEditItem] = useState<ResolvedBoardItem | null>(null);
@@ -1033,6 +1081,7 @@ export function MoodboardHome() {
     setWebsiteItems(readWebsiteItems());
     setIdeaItems(readIdeaItems());
     setIndicators(readIndicators());
+    setPaletteColors(readPaletteColors(projectId));
     setSnapMode(
       window.localStorage.getItem(snapModeKey) === "soft" ? "soft" : "free",
     );
@@ -1053,6 +1102,7 @@ export function MoodboardHome() {
     window.addEventListener(archiveEvents.websites, handleIndicators);
     window.addEventListener(archiveEvents.ideas, handleIndicators);
     window.addEventListener(archiveEvents.boardItems, handleIndicators);
+    window.addEventListener(archiveEvents.paletteColors, handleIndicators);
     window.addEventListener(commandActions.switchProject, openSwitcher);
     if (consumeQueuedCommandAction(commandActions.switchProject)) {
       openSwitcher();
@@ -1065,6 +1115,7 @@ export function MoodboardHome() {
       window.removeEventListener(archiveEvents.websites, handleIndicators);
       window.removeEventListener(archiveEvents.ideas, handleIndicators);
       window.removeEventListener(archiveEvents.boardItems, handleIndicators);
+      window.removeEventListener(archiveEvents.paletteColors, handleIndicators);
       window.removeEventListener(commandActions.switchProject, openSwitcher);
     };
   }, [activeProjectId]);
@@ -1143,6 +1194,25 @@ export function MoodboardHome() {
 
     return getSourceRelationships(infoItem.source_type, infoItem.source_id);
   }, [infoItem]);
+
+  const sortedPaletteColors = useMemo(() => {
+    return [...paletteColors].sort((a, b) => {
+      if (paletteSort === "favorites") {
+        if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+
+      if (paletteSort === "name") {
+        return (a.name || a.hex).localeCompare(b.name || b.hex);
+      }
+
+      if (paletteSort === "hue") {
+        return colorHue(a.hex) - colorHue(b.hex);
+      }
+
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [paletteColors, paletteSort]);
 
   function syncProject(projectId: string) {
     saveActiveProjectId(projectId);
@@ -1313,6 +1383,115 @@ export function MoodboardHome() {
     setColorError("");
   }
 
+  function openPalette(boardId: string) {
+    setPaletteBoardId(boardId);
+    setIsProjectPaletteOpen(true);
+    setPaletteEditingId(null);
+    setPaletteDraftHex("#E8E1D6");
+    setPaletteDraftName("");
+    setPaletteDraftFavorite(false);
+    setPaletteError("");
+  }
+
+  function persistPaletteColors(nextColors: PaletteColorItem[]) {
+    setPaletteColors(nextColors);
+    savePaletteColors(nextColors);
+  }
+
+  function editPaletteColor(color: PaletteColorItem) {
+    setPaletteEditingId(color.id);
+    setPaletteDraftHex(color.hex);
+    setPaletteDraftName(color.name ?? "");
+    setPaletteDraftFavorite(color.favorite);
+    setPaletteError("");
+  }
+
+  function resetPaletteDraft() {
+    setPaletteEditingId(null);
+    setPaletteDraftHex("#E8E1D6");
+    setPaletteDraftName("");
+    setPaletteDraftFavorite(false);
+    setPaletteError("");
+  }
+
+  function savePaletteColor() {
+    const hex = normalizeHexColor(paletteDraftHex);
+    if (!hex) {
+      setPaletteError("Use a valid HEX color, for example #E8E1D6.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    if (paletteEditingId) {
+      persistPaletteColors(
+        paletteColors.map((color) =>
+          color.id === paletteEditingId
+            ? {
+                ...color,
+                name: paletteDraftName.trim(),
+                hex,
+                favorite: paletteDraftFavorite,
+                updated_at: now,
+              }
+            : color,
+        ),
+      );
+    } else {
+      persistPaletteColors([
+        {
+          id: crypto.randomUUID(),
+          user_id: LOCAL_USER_ID,
+          project_id: activeProjectId,
+          name: paletteDraftName.trim(),
+          hex,
+          favorite: paletteDraftFavorite,
+          created_at: now,
+          updated_at: now,
+        },
+        ...paletteColors,
+      ]);
+    }
+
+    resetPaletteDraft();
+  }
+
+  function togglePaletteFavorite(colorId: string) {
+    persistPaletteColors(
+      paletteColors.map((color) =>
+        color.id === colorId
+          ? {
+              ...color,
+              favorite: !color.favorite,
+              updated_at: new Date().toISOString(),
+            }
+          : color,
+      ),
+    );
+  }
+
+  function deletePaletteColor(colorId: string) {
+    persistPaletteColors(paletteColors.filter((color) => color.id !== colorId));
+    if (paletteEditingId === colorId) resetPaletteDraft();
+  }
+
+  function addPaletteColorToBoard(color: PaletteColorItem) {
+    const boardId = paletteBoardId ?? pinboards[0]?.id;
+    if (!boardId) return;
+
+    const item = addBoardElement("text", color.hex, activeProjectId, boardId);
+    updateBoardItem(item.id, {
+      reference_title: "color-swatch",
+      reference_note: color.name ?? "",
+      text_box_enabled: false,
+      text_color: color.hex,
+      text_size: 12,
+      width: 140,
+      height: 120,
+    });
+    setBoardItems(readBoardItems(activeProjectId));
+  }
+
   function createColorSwatch() {
     if (!colorBoardId) return;
 
@@ -1421,6 +1600,7 @@ export function MoodboardHome() {
             onAddReference={addReference}
             onAddSeparator={addSeparator}
             onAddColor={addColor}
+            onOpenPalette={openPalette}
             onAddBoard={addBoard}
             onDeleteBoard={removeBoard}
             onPatchItem={patchBoardItem}
@@ -1998,6 +2178,230 @@ export function MoodboardHome() {
                   />
                 </div>
               ) : null}
+            </motion.div>
+          </motion.div>
+        ) : null}
+
+        {isProjectPaletteOpen ? (
+          <motion.div
+            variants={modalOverlay}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="fixed inset-0 z-[76] flex items-center justify-center overflow-y-auto bg-[rgb(18_14_10_/_0.18)] px-4 py-8 backdrop-blur-md"
+          >
+            <motion.div
+              variants={modalPanel}
+              role="dialog"
+              aria-modal="true"
+              className="archive-panel max-h-[calc(100vh-4rem)] w-full max-w-2xl overflow-y-auto bg-[var(--background)] p-5"
+            >
+              <div className="flex items-start justify-between gap-5">
+                <div>
+                  <p className="archive-label">Project Palette</p>
+                  <h2 className="font-serif-accent mt-2 text-4xl leading-none">
+                    Colors.
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsProjectPaletteOpen(false)}
+                  className="archive-icon-button size-9 border-[var(--line)]"
+                  aria-label="Close palette"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-2">
+                <p className="archive-label mr-1 text-[10px]">Sort</p>
+                {([
+                  ["favorites", "Favorites first"],
+                  ["newest", "Newest"],
+                  ["name", "Name A-Z"],
+                  ["hue", "Hue"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setPaletteSort(value)}
+                    className={`h-8 px-2.5 text-[11px] transition ${
+                      paletteSort === value
+                        ? "border border-[var(--foreground)] text-[var(--foreground)]"
+                        : "archive-button"
+                    }`}
+                    aria-pressed={paletteSort === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_240px]">
+                <div className="space-y-2">
+                  {sortedPaletteColors.length ? (
+                    sortedPaletteColors.map((color) => (
+                      <div
+                        key={color.id}
+                        className="flex items-center gap-3 border border-[var(--line)] p-2"
+                      >
+                        <span
+                          className="size-10 shrink-0 border border-[var(--line)]"
+                          style={{ backgroundColor: color.hex }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm text-[var(--foreground)]">
+                            {color.name || "Untitled color"}
+                          </p>
+                          <p className="font-mono text-xs uppercase text-[var(--muted)]">
+                            {color.hex}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => togglePaletteFavorite(color.id)}
+                          className={`archive-icon-button size-8 ${
+                            color.favorite ? "text-[var(--foreground)]" : ""
+                          }`}
+                          aria-label={
+                            color.favorite
+                              ? "Remove favorite"
+                              : "Mark favorite"
+                          }
+                          aria-pressed={color.favorite}
+                        >
+                          <Star
+                            size={14}
+                            fill={color.favorite ? "currentColor" : "none"}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => copyColor(color.hex)}
+                          className="archive-button h-8 px-2.5 text-xs"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addPaletteColorToBoard(color)}
+                          className="archive-button h-8 px-2.5 text-xs"
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => editPaletteColor(color)}
+                          className="archive-icon-button size-8"
+                          aria-label="Edit color"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deletePaletteColor(color.id)}
+                          className="archive-icon-button size-8"
+                          aria-label="Delete color"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="grid min-h-36 place-items-center border border-[var(--line)] px-5 text-center">
+                      <p className="max-w-xs text-sm leading-6 text-[var(--muted)]">
+                        Save project colors here, then place them onto the board as swatches.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border border-[var(--line)] p-3">
+                  <p className="archive-label text-[10px]">
+                    {paletteEditingId ? "Edit color" : "Add color"}
+                  </p>
+                  <div
+                    className="mt-3 h-24 border"
+                    style={{
+                      backgroundColor:
+                        normalizeHexColor(paletteDraftHex) ?? "#E8E1D6",
+                      borderColor: isLightColor(paletteDraftHex)
+                        ? "rgb(30 25 20 / 0.22)"
+                        : "rgb(255 255 255 / 0.16)",
+                    }}
+                  />
+                  <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                    <input
+                      value={paletteDraftHex}
+                      onChange={(event) => {
+                        setPaletteDraftHex(event.target.value);
+                        setPaletteError("");
+                      }}
+                      placeholder="#E8E1D6"
+                      className="premium-focus h-10 border border-[var(--line)] bg-transparent px-3 font-mono text-sm uppercase"
+                      aria-label="Palette HEX"
+                    />
+                    <input
+                      type="color"
+                      value={normalizeHexColor(paletteDraftHex) ?? "#E8E1D6"}
+                      onChange={(event) => {
+                        setPaletteDraftHex(event.target.value.toUpperCase());
+                        setPaletteError("");
+                      }}
+                      className="h-10 w-12 border border-[var(--line)] bg-transparent"
+                      aria-label="Pick palette color"
+                    />
+                  </div>
+                  <input
+                    value={paletteDraftName}
+                    onChange={(event) => setPaletteDraftName(event.target.value)}
+                    placeholder="Name, optional"
+                    className="premium-focus mt-2 h-10 w-full border border-[var(--line)] bg-transparent px-3 text-sm"
+                    aria-label="Color name"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPaletteDraftFavorite((favorite) => !favorite)
+                    }
+                    className={`mt-2 inline-flex h-8 items-center gap-2 border px-2.5 text-xs transition ${
+                      paletteDraftFavorite
+                        ? "border-[var(--foreground)] text-[var(--foreground)]"
+                        : "border-[var(--line)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                    aria-pressed={paletteDraftFavorite}
+                  >
+                    <Star
+                      size={13}
+                      fill={paletteDraftFavorite ? "currentColor" : "none"}
+                    />
+                    Favorite
+                  </button>
+                  {paletteError ? (
+                    <p className="mt-3 text-xs text-[var(--muted)]">
+                      {paletteError}
+                    </p>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={savePaletteColor}
+                      className="h-9 bg-[var(--foreground)] px-3 text-xs font-medium text-[var(--background)] transition hover:opacity-90"
+                    >
+                      {paletteEditingId ? "Save" : "Add"}
+                    </button>
+                    {paletteEditingId ? (
+                      <button
+                        type="button"
+                        onClick={resetPaletteDraft}
+                        className="archive-button h-9 px-3 text-xs"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         ) : null}
